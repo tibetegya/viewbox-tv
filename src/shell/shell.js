@@ -17,6 +17,8 @@ function route(path) {
   return null; // login, account, … keep the site's own page
 }
 
+export const isShellPath = (path) => !!route(path);
+
 export function startShell() {
   const view = route(location.pathname);
   if (!view) return null;

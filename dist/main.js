@@ -832,7 +832,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       "section",
       { class: "jf-settings__section" },
       h("h2", { class: "jf-section__title" }, "About"),
-      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.3.2" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
+      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.3.3" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
       h("p", { class: "jf-settings__about" }, navigator.userAgent)
     );
     main.append(account, sync, playback, about);
@@ -1496,6 +1496,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     if (/^\/search/.test(path)) return (app) => searchView(app);
     return null;
   }
+  var isShellPath = (path) => !!route(path);
   function startShell() {
     const view = route(location.pathname);
     if (!view) return null;
@@ -1575,6 +1576,24 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     if (window.__fcTv) return;
     window.__fcTv = true;
     holdMovieAutostart();
+    const booting = window.top === window && isShellPath(location.pathname);
+    const unboot = () => document.documentElement && document.documentElement.classList.remove("fc-boot");
+    const boot = () => {
+      document.documentElement.classList.add("fc-boot");
+      const s = document.createElement("style");
+      s.textContent = "html.fc-boot,html.fc-boot body{background:#101010!important}html.fc-boot body{visibility:hidden!important}";
+      (document.head || document.documentElement).appendChild(s);
+      setTimeout(unboot, 8e3);
+    };
+    if (booting) {
+      if (document.documentElement) boot();
+      else new MutationObserver((_, mo) => {
+        if (document.documentElement) {
+          mo.disconnect();
+          boot();
+        }
+      }).observe(document, { childList: true });
+    }
     const DEFAULTS = { autoplayEnabled: true, creditsOffset: 20, countdownSecs: 10, autoplayOff: [], stillWatching: true, swEpisodes: 3, swMinutes: 90 };
     const SETTINGS_KEY2 = "fc-tv-settings";
     const settings = () => {
@@ -1611,7 +1630,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
           throw e;
         }
       }
-      if (!looksLikeSite()) return;
+      if (!looksLikeSite()) return unboot();
       siteActive = true;
       document.documentElement.classList.add("fc-tv");
       document.head.appendChild(document.createElement("style")).textContent = tv_default;
@@ -1620,6 +1639,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       if (pid) markSeen(pid);
       if (/^\/watch\/tv\//.test(location.pathname)) loadPlayer();
       shell = startShell();
+      unboot();
       scan(false).then(() => document.dispatchEvent(new Event("fc-scanned")));
       setTimeout(() => activeEl() || move("down"), 800);
     });

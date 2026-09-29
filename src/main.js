@@ -5,7 +5,7 @@ import css from './tv.css';
 import { move, activeEl } from './nav.js';
 import { scan, markSeen } from './episodes.js';
 import { isLauncher, runLauncher } from './launcher.js';
-import { startShell } from './shell/shell.js';
+import { startShell, isShellPath } from './shell/shell.js';
 import { holdMovieAutostart } from './shell/autostart.js';
 
 /* global PLAYER_SRC, tizen, jwplayer */
@@ -14,6 +14,24 @@ import { holdMovieAutostart } from './shell/autostart.js';
   if (window.__fcTv) return; // TizenBrew evaluates the module in every new execution context
   window.__fcTv = true;
   holdMovieAutostart(); // must run before the site's scripts: movie pages autoplay otherwise
+
+  // No flash of the site's own UI: from injection (document start on TizenBrew) until the shell is up, show only the
+  // shell's dark background. Lifted when the shell mounts, at once if the page isn't the site (e.g. a Cloudflare
+  // challenge must stay visible), and after 8 s whatever happens.
+  const booting = window.top === window && isShellPath(location.pathname);
+  const unboot = () => document.documentElement && document.documentElement.classList.remove('fc-boot');
+  const boot = () => {
+    document.documentElement.classList.add('fc-boot');
+    const s = document.createElement('style');
+    s.textContent = 'html.fc-boot,html.fc-boot body{background:#101010!important}html.fc-boot body{visibility:hidden!important}';
+    (document.head || document.documentElement).appendChild(s);
+    setTimeout(unboot, 8000);
+  };
+  // At document start <html> may not exist yet: apply the moment it's inserted, before anything paints.
+  if (booting) {
+    if (document.documentElement) boot();
+    else new MutationObserver((_, mo) => { if (document.documentElement) { mo.disconnect(); boot(); } }).observe(document, { childList: true });
+  }
 
   const DEFAULTS = { autoplayEnabled: true, creditsOffset: 20, countdownSecs: 10, autoplayOff: [], stillWatching: true, swEpisodes: 3, swMinutes: 90 };
   const SETTINGS_KEY = 'fc-tv-settings';
@@ -50,7 +68,7 @@ import { holdMovieAutostart } from './shell/autostart.js';
         throw e;
       }
     }
-    if (!looksLikeSite()) return;
+    if (!looksLikeSite()) return unboot();
     siteActive = true;
     document.documentElement.classList.add('fc-tv');
     document.head.appendChild(document.createElement('style')).textContent = css;
@@ -59,6 +77,7 @@ import { holdMovieAutostart } from './shell/autostart.js';
     if (pid) markSeen(pid);
     if (/^\/watch\/tv\//.test(location.pathname)) loadPlayer();
     shell = startShell();
+    unboot();
     scan(false).then(() => document.dispatchEvent(new Event('fc-scanned')));
     setTimeout(() => activeEl() || move('down'), 800);
   });
