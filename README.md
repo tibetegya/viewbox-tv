@@ -36,7 +36,15 @@ Published at **github.com/tibetegya/viewbox-tv** (contents of this folder at the
 3. **Set Host PC IP back to `127.0.0.1`** (Apps → 1-2-3-4-5), then restart the TV. TizenBrew can only inject modules when Developer mode points at the TV itself — with any other IP the module never loads.
 4. In TizenBrew, add the module `gh/tibetegya/viewbox-tv` (or pin a release, e.g. `gh/tibetegya/viewbox-tv@v0.2.3`) and launch "Viewbox TV".
 5. First launch: select the address box, press Enter, type the site address (e.g. `example.com`), then **Open**. It's remembered; later launches open it after a 3-second start screen (press **Red** there to change it).
-6. Open **Settings** (person icon, top right — or **Sign in** when signed out): sign in with your VIP email/password and enter your list **Sync Code**. Favourites stay empty until a sync code is active. Both are remembered by the TV's browser.
+6. Open **Settings** (gear icon, top right — or **Sign in** when signed out) and sign in with your VIP email/password. Then add a **profile** (Settings → Profiles) with your list's sync code, or start fresh. Favourites stay empty until a profile is active.
+
+## Profiles ("Who's watching?")
+Each profile is tied to one of the site's **sync codes**, and its favourites and watch history (Continue Watching, Next Up, progress bars, new-episode badges) go with it.
+- With 2+ profiles, the app opens on **Who's watching?**. Switch anytime with the avatar at the top right; manage profiles in Settings → Profiles.
+- **Add Profile:** **Start fresh** (a new, empty sync code) or **Use existing sync code** (checked with the sync server first). Pick a colour; optionally set a 4-digit **PIN** (number keys or the on-screen pad).
+- **Hold OK** on a profile to edit it (name, colour, PIN, sync code, delete).
+- Switching uses the site's own sync: it saves pending changes to the old code first (if the sync server can't be reached, nothing changes), then loads the other code's lists and full watch history.
+- Sync codes need a signed-in VIP account (Settings → Account).
 
 ## Standalone app (.wgt, no TizenBrew)
 `tv/wgt/` builds **Viewbox TV** as its own Tizen app to sideload (e.g. with Apps2Samsung):

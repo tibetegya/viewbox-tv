@@ -1,5 +1,9 @@
 // Small DOM helpers + Jellyfin-style building blocks (see tv/JELLYFIN_STYLE.md).
 import { img } from './data.js';
+import { currentProfile, initialOf } from './profiles.js';
+
+// A screen can take keys before the default D-pad handling (main.js): fn(e) returns true when it handled the key.
+export const keyHook = { fn: null };
 
 export function h(tag, attrs = {}, ...kids) {
   const el = document.createElement(tag);
@@ -37,6 +41,8 @@ const ICONS = {
   movie: 'M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4a2 2 0 00-1.99 2L2 18a2 2 0 002 2h16a2 2 0 002-2V4h-4z',
   person: 'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
   star: 'M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z',
+  lock: 'M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z',
+  settings: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z',
 };
 
 export function icon(name, cls = '') {
@@ -98,9 +104,17 @@ export function header({ tabs, active, title } = {}) {
   const right = h('div', { class: 'jf-header__right' },
     !signedIn && h('a', { class: 'jf-signin', href: '/home#settings' }, 'Sign in'),
     h('a', { class: 'jf-iconbtn', href: '/search/', 'aria-label': 'Search' }, icon('search')),
-    h('a', { class: 'jf-iconbtn', href: '/home#settings', 'aria-label': 'Settings' }, icon('person')),
+    h('a', { class: 'jf-iconbtn', href: '/home#settings', 'aria-label': 'Settings' }, icon('settings')),
+    profileButton(),
     clock());
   return h('header', { class: 'jf-header' }, left, mid, right);
+}
+
+// Active profile's avatar (Nuvio-style): opens "Who's watching?" to switch; a plain person icon when there's none yet.
+function profileButton() {
+  const p = currentProfile();
+  return h('a', { class: 'jf-iconbtn jf-profilebtn', href: '/home#profiles', 'aria-label': p ? `Profile: ${p.name}. Switch profile` : 'Profiles' },
+    p ? h('span', { class: 'jf-profilebtn__avatar', style: { background: p.color } }, initialOf(p.name)) : icon('person'));
 }
 
 // The site shows a "My Account" link only when a VIP session is active (PRD Appendix A). While the page is still

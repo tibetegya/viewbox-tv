@@ -1,6 +1,5 @@
 // Home, Favourites, Library and Search screens (Jellyfin TV layout, tv/JELLYFIN_STYLE.md).
 import { h, icon, card, section, header, epLabel, isSignedIn, toast } from './ui.js';
-import { applyPendingSync } from './settings.js';
 import { library, search, watchEntries, continueWatching, nextUp, metaCache, progressIndex, progressOf } from './data.js';
 import { ensureMeta, epsOf, findEp, hrefOf } from './meta.js';
 import { counts as newCounts, load as loadScan } from '../episodes.js';
@@ -83,7 +82,6 @@ export function favouritesView(app) {
   app.append(header({ tabs: HOME_TABS, active: 'favourites' }), main);
   const settingsLink = (text) => h('p', { class: 'jf-empty' }, text, ' ', h('a', { class: 'jf-button jf-button--inline', href: '/home#settings' }, 'Open Settings'));
   let loading = true;
-  let note = null;
   const itemsNow = () => [...favoritePids('t').map((pid) => ({ pid, type: 'tv' })), ...favoritePids('m').map((pid) => ({ pid, type: 'movie' }))];
   const draw = () => {
     const items = itemsNow();
@@ -98,12 +96,12 @@ export function favouritesView(app) {
     let empty = '';
     if (!shows.length && !movies.length) {
       if (!isSignedIn()) empty = settingsLink('Sign in to your VIP account to see your favourites.');
-      else if (!items.length && !localStorage.getItem('hqs.code')) empty = settingsLink('No favourites yet — add your list\'s Sync Code in Settings to load them.');
+      else if (!items.length && !localStorage.getItem('hqs.code')) empty = h('p', { class: 'jf-empty' }, 'No profile yet — your favourites come with a profile (tied to a sync code).', ' ', h('a', { class: 'jf-button jf-button--inline', href: '/home#profiles-manage' }, 'Add a profile'));
       else if (!items.length) empty = h('p', { class: 'jf-empty' }, 'No favourites in this list yet.');
       else empty = h('p', { class: 'jf-empty' }, loading ? 'Loading favourites…' : 'Couldn\'t load your favourites. Try again later.');
     }
     const had = main.contains(document.activeElement);
-    main.replaceChildren(note || '', shows.length ? section('Shows', shows, 'jf-grid') : '', movies.length ? section('Movies', movies, 'jf-grid') : '', empty);
+    main.replaceChildren(shows.length ? section('Shows', shows, 'jf-grid') : '', movies.length ? section('Movies', movies, 'jf-grid') : '', empty);
     if (!had) focusFirst(main);
   };
   const load = () => {
@@ -112,16 +110,7 @@ export function favouritesView(app) {
     ensureMeta(itemsNow().filter((i) => !scanned[i.pid]?.title), 60, draw).then(() => { loading = false; draw(); }); // redraw as each one arrives
   };
   draw();
-  const pending = applyPendingSync(); // a Sync Code chosen in Settings is entered in the site's (hidden) sync box here
-  if (pending) {
-    note = h('p', { class: 'jf-empty', role: 'status' }, 'Applying your sync code…');
-    draw();
-    pending.then((ok) => {
-      note = h('p', { class: 'jf-empty', role: 'status' }, ok ? 'Sync code applied.' : 'That sync code wasn\'t accepted — check it in Settings.');
-      toast(ok ? 'Sync code applied' : 'Sync code not accepted');
-      setTimeout(load, 1500); // give the site's list pull a moment to write bm:* keys
-    });
-  } else load();
+  load();
 }
 
 // ---- Library (Shows / Movies) ------------------------------------------------------------------------------------

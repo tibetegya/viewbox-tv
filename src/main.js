@@ -3,6 +3,7 @@
 // TizenBrew injects this into every page of its window: the launcher page (pick the site) and the site itself.
 import css from './tv.css';
 import { move, activeEl } from './nav.js';
+import { keyHook } from './shell/ui.js';
 import { scan, markSeen } from './episodes.js';
 import { isLauncher, runLauncher } from './launcher.js';
 import { startShell, isShellPath, bootShell, unmountShell, isLoadingPlayback } from './shell/shell.js';
@@ -109,6 +110,8 @@ import { holdMovieAutostart } from './shell/autostart.js';
   window.addEventListener('keydown', (e) => {
     if (!siteActive && !document.getElementById('fc-app')) return; // our screen may be up before the page is ready
     const code = e.keyCode;
+    // A screen with its own keys (profile picker: hold OK, PIN digits, Back in overlays) goes first.
+    if (keyHook.fn && keyHook.fn(e)) { e.preventDefault(); e.stopPropagation(); handled.add(code); return; }
     // Loading screen before playback: only Back (leave) does anything.
     if (isLoadingPlayback() && (KEYS[code] || code === 13)) { e.preventDefault(); e.stopPropagation(); handled.add(code); return; }
     // While playing: the Jellyfin-style OSD owns the keys (first press shows it); without the shell, the site's keys.

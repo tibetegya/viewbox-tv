@@ -21,9 +21,10 @@ export function parseShowPage(doc) {
   return { title: m?.[1] ?? null, year: m?.[2] ?? null, slug: og('url').split('/').pop(), poster: og('image').split('/').pop(), eps };
 }
 
-const KEY = 'fc-tv-shows';
-export const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) ?? {}; } catch { return {}; } };
-export const save = (shows) => { try { localStorage.setItem(KEY, JSON.stringify(shows)); } catch {} };
+// Per sync code (= per profile, profiles.js): which episodes each person has already seen as "new".
+const key = () => { let c = ''; try { c = localStorage.getItem('hqs.code') || ''; } catch {} return c ? `fc-tv-shows:${c}` : 'fc-tv-shows'; };
+export const load = () => { try { return JSON.parse(localStorage.getItem(key())) ?? {}; } catch { return {}; } };
+export const save = (shows) => { try { localStorage.setItem(key(), JSON.stringify(shows)); } catch {} };
 
 // The site's own favorites: localStorage "bm:t:{pid}" (TV shows only).
 export const favoritePids = () => Object.keys(localStorage).filter((k) => k.startsWith('bm:t:')).map((k) => k.slice(5));

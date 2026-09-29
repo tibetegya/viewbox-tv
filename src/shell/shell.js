@@ -6,6 +6,8 @@ import { h, header, epLabel, toast } from './ui.js';
 import { homeView, favouritesView, libraryView, searchView, HOME_TABS } from './views.js';
 import { detailsView } from './details.js';
 import { settingsView } from './settings.js';
+import { profilesView } from './profileScreen.js';
+import { loadProfiles, wasChosen, markChosen } from './profiles.js';
 import { createOsd } from './osd.js';
 import { parseHome, parseDetails, parseLibraryPage, metaCache, img } from './data.js';
 import { findEp } from './meta.js';
@@ -15,6 +17,12 @@ import { cache, same } from './cache.js';
 function route(path) {
   if (path === '/' || path === '/home') {
     if (location.hash === '#settings') return { render: (app) => settingsView(app), skeleton: 'plain' };
+    if (location.hash === '#profiles' || location.hash === '#profiles-manage') return { id: 'profiles', render: (app) => profilesView(app, { manage: location.hash === '#profiles-manage' }) };
+    // "Who's watching?" first when the app opens with 2+ profiles (Nuvio-style); drawn in place of Home.
+    if (!location.hash && !wasChosen()) {
+      if (loadProfiles().length >= 2) return { id: 'picker', render: (app) => profilesView(app, { onDone: () => redraw() }) };
+      markChosen(); // one profile (or none): nothing to pick this session
+    }
     return { key: 'home', fresh: () => parseHome(document), render: homeView, skeleton: 'home' };
   }
   if (/^\/mylists\//.test(path)) return { render: (app) => favouritesView(app), skeleton: 'grid' };
@@ -89,11 +97,29 @@ export function bootShell() {
   const r = route(location.pathname);
   if (!r || app) return;
   mount(document.documentElement);
-  const stale = r.key ? cache.get(r.key) : undefined;
-  if (stale !== undefined) {
-    try { r.render(app, stale); drawn = { data: stale, signedIn: localStorage.getItem('fc-tv-signed-in') }; } catch (e) { app.replaceChildren(...skeleton(r.skeleton)); }
-  } else app.append(...skeleton(r.skeleton));
+  draw(r);
   if (playbackExpected()) showLoading();
+}
+
+// Draw a screen before the page has loaded: from the cache, a screen that needs no page data (the picker), or a skeleton.
+function draw(r) {
+  const stale = r.key ? cache.get(r.key) : undefined;
+  app.replaceChildren();
+  try {
+    if (stale !== undefined) { r.render(app, stale); drawn = { id: r.id, data: stale, signedIn: localStorage.getItem('fc-tv-signed-in') }; return; }
+    if (r.id) { r.render(app); drawn = { id: r.id }; return; }
+  } catch (e) { app.replaceChildren(); }
+  drawn = null;
+  app.append(...skeleton(r.skeleton));
+}
+
+// After "Who's watching?" (same profile kept): show Home in place — from the page if it's loaded, else as at boot.
+function redraw() {
+  const r = route(location.pathname);
+  if (document.readyState === 'loading') return draw(r);
+  app.replaceChildren();
+  app.scrollTop = 0;
+  r.render(app, r.key ? r.fresh() : undefined);
 }
 
 // The page turned out not to be the site (e.g. a Cloudflare challenge): take everything down again.
@@ -124,7 +150,8 @@ export function startShell() {
   const fresh = r.key ? r.fresh() : undefined;
   if (r.key) cache.set(r.key, fresh);
   const signedIn = document.querySelector('a[href="/account"]') ? '1' : '0';
-  if (!(drawn && same(drawn.data, fresh) && drawn.signedIn === signedIn)) {
+  const upToDate = drawn && drawn.id === r.id && (r.key ? same(drawn.data, fresh) && drawn.signedIn === signedIn : true);
+  if (!upToDate) {
     const where = focusPath();
     const top = app.scrollTop;
     app.replaceChildren();

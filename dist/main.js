@@ -91,6 +91,531 @@
     return !!next;
   }
 
+  // src/shell/cache.js
+  var KEY = "fc-tv-swr";
+  var MAX_ITEMS = 40;
+  var MAX_CHARS = 1e6;
+  function createCache(storage) {
+    const st = () => storage || globalThis.localStorage;
+    const read = () => {
+      try {
+        return JSON.parse(st().getItem(KEY)) || {};
+      } catch {
+        return {};
+      }
+    };
+    return {
+      get(key2) {
+        const e = read()[key2];
+        return e ? e.v : void 0;
+      },
+      set(key2, v) {
+        const all = read();
+        all[key2] = { t: Date.now(), v };
+        const byAge = () => Object.keys(all).sort((a, b) => all[a].t - all[b].t);
+        for (const k of byAge().slice(0, Math.max(0, Object.keys(all).length - MAX_ITEMS))) delete all[k];
+        let json = JSON.stringify(all);
+        while (json.length > MAX_CHARS && Object.keys(all).length > 1) {
+          delete all[byAge()[0]];
+          json = JSON.stringify(all);
+        }
+        try {
+          st().setItem(KEY, json);
+        } catch {
+          try {
+            st().removeItem(KEY);
+          } catch {
+          }
+        }
+      }
+    };
+  }
+  var cache = createCache();
+  var same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  function swr(key2, load2, onFresh, store = cache) {
+    const stale = store.get(key2);
+    const fresh = load2().then((v) => {
+      store.set(key2, v);
+      if (stale !== void 0 && onFresh && !same(v, stale)) onFresh(v);
+      return v;
+    });
+    if (stale === void 0) return fresh;
+    fresh.catch(() => {
+    });
+    return Promise.resolve(stale);
+  }
+
+  // src/shell/data.js
+  var IMG = "https://img.xcdn.to/t/p";
+  var unescape = (s) => String(s || "").replace(/\\(['"])/g, "$1");
+  var img = (file, size = "w342") => file ? `${IMG}/${size}/${String(file).replace(/^\//, "")}` : "";
+  function parsePos(key2, value) {
+    const k = key2.split(":");
+    const v = String(value || "").split(":").map(Number);
+    if (k[0] !== "pos" || !k[1] || v.length < 3 || !(v[1] > 0)) return null;
+    const e = { pid: k[1], pos: v[0], dur: v[1], ts: v[2] * 1e3, pct: v[0] / v[1] };
+    if (k.length >= 4) Object.assign(e, { type: "tv", season: +k[2], episode: +k[3] });
+    else e.type = "movie";
+    return e;
+  }
+  var STARTED = 0.05;
+  var FINISHED = 0.9;
+  function continueWatching(entries) {
+    const seen = /* @__PURE__ */ new Set();
+    return entries.filter((e) => e.pct > STARTED && e.pct < FINISHED).sort((a, b) => b.ts - a.ts).filter((e) => seen.has(e.pid) ? false : seen.add(e.pid));
+  }
+  function nextUp(entries, epsByPid) {
+    const latest = /* @__PURE__ */ new Map();
+    for (const e of entries.filter((x) => x.type === "tv").sort((a, b) => b.ts - a.ts)) if (!latest.has(e.pid)) latest.set(e.pid, e);
+    const out = [];
+    for (const e of latest.values()) {
+      if (e.pct < FINISHED) continue;
+      const eps = (epsByPid[e.pid] || []).filter((x) => x.season > 0).sort((a, b) => a.season - b.season || a.episode - b.episode);
+      const i = eps.findIndex((x) => x.season === e.season && x.episode === e.episode);
+      if (i >= 0 && eps[i + 1]) out.push({ ...eps[i + 1], pid: e.pid, ts: e.ts });
+    }
+    return out;
+  }
+  function progressIndex(entries) {
+    const idx = { movie: {}, show: {}, episode: {} };
+    const inProgress = (pct) => pct > STARTED && pct < FINISHED;
+    const latest = {};
+    for (const e of entries) {
+      if (e.type === "movie") {
+        if (inProgress(e.pct)) idx.movie[e.pid] = e.pct;
+        continue;
+      }
+      if (inProgress(e.pct)) idx.episode[`${e.pid}:${e.season}:${e.episode}`] = e.pct;
+      if (!latest[e.pid] || e.ts > latest[e.pid].ts) latest[e.pid] = e;
+    }
+    for (const [pid, e] of Object.entries(latest)) if (inProgress(e.pct)) idx.show[pid] = e.pct;
+    return idx;
+  }
+  var progressOf = (idx, c) => (c.type === "movie" ? idx.movie[c.pid] : c.season ? idx.episode[`${c.pid}:${c.season}:${c.episode}`] : idx.show[c.pid]) || 0;
+  var backdropFromHtml = (html) => (/url\("?https:\/\/img\.xcdn\.to\/t\/p\/w1280\/([A-Za-z0-9_-]+\.jpg)/.exec(html) || [])[1] || null;
+  function parseCards(root) {
+    return [...root.querySelectorAll(".cflip[data-href]")].map((c) => {
+      var _a, _b, _c, _d, _e, _f, _g, _h;
+      const href = c.dataset.href;
+      const [, , type, pid, slug, , season, , episode] = href.split("/");
+      const poster = (((_a = c.querySelector("img.card-img-top")) == null ? void 0 : _a.getAttribute("src")) || ((_b = c.querySelector("img[data-src]")) == null ? void 0 : _b.dataset.src) || "").split("/").pop();
+      const badge = ((_c = c.querySelector(".card-badge.top .badge")) == null ? void 0 : _c.textContent.trim()) || "";
+      return {
+        href,
+        pid,
+        slug,
+        type: type === "movie" ? "movie" : "tv",
+        title: unescape(((_e = (_d = c.querySelector("img")) == null ? void 0 : _d.alt) == null ? void 0 : _e.trim()) || ((_f = c.querySelector(".card-footer")) == null ? void 0 : _f.textContent.trim()) || ""),
+        year: /^\d{4}$/.test(badge) ? badge : ((_g = c.querySelector(".card-text.t12")) == null ? void 0 : _g.textContent.trim()) || "",
+        poster,
+        season: season ? +season : null,
+        episode: episode ? +episode : null,
+        rating: ((_h = c.querySelector(".card-badge.bottom .badge")) == null ? void 0 : _h.textContent.trim()) || ""
+      };
+    });
+  }
+  function parseHero(root) {
+    return [...root.querySelectorAll(".carousel-item")].map((s) => {
+      var _a, _b;
+      const cap = s.querySelector(".carousel-caption-container[data-href]");
+      const bg = /\/t\/p\/original\/([A-Za-z0-9_-]+\.jpg)/.exec(s.getAttribute("style") || "");
+      return cap && {
+        href: cap.dataset.href,
+        title: ((_a = cap.querySelector(".font-weight-normal")) == null ? void 0 : _a.textContent.trim()) || "",
+        overview: ((_b = cap.querySelector(".t16")) == null ? void 0 : _b.textContent.trim()) || "",
+        backdrop: bg ? bg[1] : null
+      };
+    }).filter(Boolean);
+  }
+  function parseHome(root) {
+    const row = (k) => parseCards(root.querySelector(`.contentList${k}`) || root.createElement("div"));
+    return { hero: parseHero(root), popular: row("R"), latest: row("E"), tv: row("T"), movies: row("M") };
+  }
+  var lastPage = (root) => Math.max(1, ...[...root.querySelectorAll(".searchnav[data-p]")].map((a) => +a.dataset.p || 1));
+  function parseDetails(doc, html) {
+    var _a, _b, _c, _d, _e;
+    const ov = doc.querySelector(".section-watch-overview");
+    const badge = (title) => {
+      var _a2;
+      return ((_a2 = [...(ov == null ? void 0 : ov.querySelectorAll(".badge[title]")) || []].find((b) => b.title === title)) == null ? void 0 : _a2.textContent.trim()) || "";
+    };
+    const header2 = ov == null ? void 0 : ov.querySelector(".watch-header");
+    const links = (type) => [...(ov == null ? void 0 : ov.querySelectorAll(`.show.link[data-type="${type}"]`)) || []].map((a) => a.textContent.trim());
+    const seasons = [...doc.querySelectorAll(".section-watch-season")].map((sec) => {
+      var _a2, _b2, _c2;
+      const rows = [...sec.querySelectorAll("tr.eplist")].map((r) => {
+        var _a3, _b3, _c3;
+        return {
+          season: +r.dataset.pes,
+          episode: +r.dataset.pep,
+          epid: +r.dataset.epid,
+          title: ((_a3 = r.querySelector(".epTitle")) == null ? void 0 : _a3.textContent.trim()) || "",
+          thumb: (((_b3 = r.querySelector("img.watch-episode-thumb")) == null ? void 0 : _b3.dataset.img) || "").replace(/^\//, ""),
+          airDate: ((_c3 = r.querySelector(".hidden-md-up")) == null ? void 0 : _c3.textContent.trim()) || ""
+        };
+      }).sort((a, b) => a.episode - b.episode);
+      const poster = (((_a2 = sec.querySelector("img.watch-season-thumb")) == null ? void 0 : _a2.dataset.img) || "").replace(/^\//, "");
+      return { season: (_c2 = (_b2 = rows[0]) == null ? void 0 : _b2.season) != null ? _c2 : null, poster, episodes: rows };
+    }).filter((s) => s.season !== null).sort((a, b) => a.season - b.season);
+    return {
+      slug: (((_a = doc.querySelector('meta[property="og:url"]')) == null ? void 0 : _a.content) || "").split("/").pop(),
+      title: ((_b = header2 == null ? void 0 : header2.childNodes[0]) == null ? void 0 : _b.textContent.trim()) || "",
+      year: (/\((\d{4})\)/.exec((header2 == null ? void 0 : header2.textContent) || "") || [])[1] || "",
+      poster: (((_c = ov == null ? void 0 : ov.querySelector("img[data-img]")) == null ? void 0 : _c.dataset.img) || "").replace(/^\//, ""),
+      backdrop: backdropFromHtml(html),
+      overview: ((_d = ov == null ? void 0 : ov.querySelector(".moreless-content")) == null ? void 0 : _d.textContent.trim()) || "",
+      rating: ((_e = ov == null ? void 0 : ov.querySelector('.badge[title^="Rated"]')) == null ? void 0 : _e.textContent.trim()) || "",
+      contentRating: badge("US Content Rating"),
+      genres: links("genre"),
+      network: links("network")[0] || "",
+      seasons,
+      similar: parseCards(doc.querySelector(".section-watch-recomm") || doc.createElement("div"))
+    };
+  }
+  var toDoc = (html) => new DOMParser().parseFromString(html, "text/html");
+  async function get(url) {
+    const r = await fetch(url, { credentials: "same-origin" });
+    if (!r.ok) throw new Error(`${r.status} ${url}`);
+    return r.text();
+  }
+  function library(kind, page = 1, sort = "latest", onFresh) {
+    return swr(`lib:${kind}:${sort}:${page}`, async () => {
+      const doc = toDoc(await get(`/show/${kind === "movies" ? "movies" : "tvshows"}?page=${page}&sort=${sort}&ajax=1`));
+      return { cards: parseCards(doc), lastPage: lastPage(doc) };
+    }, onFresh);
+  }
+  function search(query, page = 1, onFresh) {
+    return swr(`search:${query.toLowerCase()}:${page}`, async () => {
+      const doc = toDoc(await get(`/search/${encodeURIComponent(query)}?ajax=1&tab=movies,tvshows${page > 1 ? `&page=${page}` : ""}`));
+      return { cards: parseCards(doc), lastPage: lastPage(doc) };
+    }, onFresh);
+  }
+  var parseLibraryPage = (root, kind) => ({
+    cards: parseCards(root.querySelector("#content") || root).filter((c) => c.type === (kind === "movies" ? "movie" : "tv")),
+    lastPage: lastPage(root)
+  });
+  async function details(type, pid) {
+    const html = await get(`/watch/${type === "movie" ? "movie" : "tv"}/${pid}`);
+    return parseDetails(toDoc(html), html);
+  }
+  function watchEntries(storage = localStorage) {
+    const out = [];
+    for (let i = 0; i < storage.length; i++) {
+      const k = storage.key(i);
+      if (k && k.startsWith("pos:")) {
+        const e = parsePos(k, storage.getItem(k));
+        if (e) out.push(e);
+      }
+    }
+    return out;
+  }
+  var META_KEY = "fc-tv-meta";
+  var metaCache = {
+    all() {
+      try {
+        return JSON.parse(localStorage.getItem(META_KEY)) || {};
+      } catch {
+        return {};
+      }
+    },
+    put(pid, m) {
+      const all = this.all();
+      all[pid] = { ...all[pid], ...m, ts: Date.now() };
+      try {
+        localStorage.setItem(META_KEY, JSON.stringify(all));
+      } catch {
+      }
+    }
+  };
+
+  // src/shell/profiles.js
+  var KEY2 = "fc-tv-profiles";
+  var MAX_PROFILES = 6;
+  var PALETTE = ["#1E88E5", "#E53935", "#43A047", "#FB8C00", "#8E24AA", "#00ACC1", "#F4511E", "#6D4C41"];
+  var CHOSEN_KEY = "fc-tv-profile-chosen";
+  var formatCode = (raw) => {
+    const c = String(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 9);
+    return c.length > 8 ? `${c.slice(0, 4)}-${c.slice(4, 8)}-${c.slice(8)}` : c.length > 4 ? `${c.slice(0, 4)}-${c.slice(4)}` : c;
+  };
+  var validCode = (code) => /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]$/.test(code);
+  var sameCode = (a, b) => !!a && !!b && formatCode(a) === formatCode(b);
+  var initialOf = (name) => (String(name || "").trim()[0] || "?").toUpperCase();
+  var activeProfile = (list, hqsCode) => list.find((p) => sameCode(p.code, hqsCode)) || null;
+  function addProfile(list, { name, color, code, pinHash }, id = String(Date.now())) {
+    if (list.length >= MAX_PROFILES) throw new Error(`Up to ${MAX_PROFILES} profiles.`);
+    if (list.some((p) => sameCode(p.code, code))) throw new Error("Another profile already uses that sync code.");
+    return [...list, { id, name: String(name).trim().slice(0, 20), color: color || PALETTE[list.length % PALETTE.length], code: formatCode(code), ...pinHash ? { pinHash } : {} }];
+  }
+  function updateProfile(list, id, changes) {
+    if (changes.code && list.some((p) => p.id !== id && sameCode(p.code, changes.code))) throw new Error("Another profile already uses that sync code.");
+    return list.map((p) => {
+      if (p.id !== id) return p;
+      const next = { ...p, ...changes };
+      if (changes.code) next.code = formatCode(changes.code);
+      if (changes.name != null) next.name = String(changes.name).trim().slice(0, 20);
+      if (!next.pinHash) delete next.pinHash;
+      return next;
+    });
+  }
+  var removeProfile = (list, id) => list.filter((p) => p.id !== id);
+  function migrate(list, hqsCode) {
+    if (list.length || !hqsCode) return list;
+    return addProfile(list, { name: "Profile 1", color: PALETTE[0], code: hqsCode }, "1");
+  }
+  async function hashPin(id, pin) {
+    const bytes = new TextEncoder().encode(`viewbox:${id}:${pin}`);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  var checkPin = async (profile, pin) => !profile.pinHash || await hashPin(profile.id, pin) === profile.pinHash;
+  var currentCode = () => {
+    try {
+      return localStorage.getItem("hqs.code") || "";
+    } catch {
+      return "";
+    }
+  };
+  function loadProfiles() {
+    let list = [];
+    try {
+      list = JSON.parse(localStorage.getItem(KEY2)) || [];
+    } catch {
+    }
+    const migrated = migrate(list, currentCode());
+    if (migrated !== list) {
+      saveProfiles(migrated);
+      try {
+        const old = localStorage.getItem("fc-tv-shows");
+        if (old) {
+          localStorage.setItem(`fc-tv-shows:${currentCode()}`, old);
+          localStorage.removeItem("fc-tv-shows");
+        }
+      } catch {
+      }
+    }
+    return migrated;
+  }
+  var saveProfiles = (list) => {
+    try {
+      localStorage.setItem(KEY2, JSON.stringify(list));
+    } catch {
+    }
+  };
+  var currentProfile = () => activeProfile(loadProfiles(), currentCode());
+  var markChosen = () => {
+    try {
+      sessionStorage.setItem(CHOSEN_KEY, "1");
+    } catch {
+    }
+  };
+  var wasChosen = () => {
+    try {
+      return sessionStorage.getItem(CHOSEN_KEY) === "1";
+    } catch {
+      return false;
+    }
+  };
+  var api = () => window.hqsSync && window.hqsSync.api || "";
+  var rawCode = (code) => formatCode(code).replace(/-/g, "");
+  function codeExists(code) {
+    return new Promise((resolve, reject) => {
+      if (!api() || typeof $ === "undefined") return reject(new Error("Sync isn't available on this page."));
+      $.ajax({
+        url: `${api()}/api/code/exists/${rawCode(code)}`,
+        type: "GET",
+        dataType: "json",
+        timeout: 1e4,
+        beforeSend: (x) => x.setRequestHeader("X-Sync-Code", currentCode()),
+        success: () => resolve(true),
+        // 404: no such code; 400 "invalid code": fails the server's check (the last character is a check character)
+        error: (x) => x.status === 404 || x.status === 400 ? resolve(false) : reject(new Error("Couldn't reach the sync server."))
+      });
+    });
+  }
+  function createCode() {
+    return new Promise((resolve, reject) => {
+      if (!api() || typeof $ === "undefined") return reject(new Error("Sync isn't available on this page."));
+      $.ajax({
+        url: `${api()}/api/code/create`,
+        type: "POST",
+        data: "{}",
+        contentType: "application/json",
+        dataType: "json",
+        timeout: 1e4,
+        success: (r) => r && r.code && validCode(formatCode(r.code)) ? resolve(formatCode(r.code)) : reject(new Error("The sync server didn't return a code.")),
+        error: () => reject(new Error("Couldn't reach the sync server."))
+      });
+    });
+  }
+  var waitFor = (test, ms) => new Promise((resolve) => {
+    const t0 = Date.now();
+    const tick = () => test() ? resolve(true) : Date.now() - t0 > ms ? resolve(false) : setTimeout(tick, 250);
+    tick();
+  });
+  async function switchTo(profile) {
+    if (sameCode(currentCode(), profile.code)) return;
+    if (typeof window.hqsSyncJoin !== "function") throw new Error("Sync isn't available on this page.");
+    const before = currentCode();
+    window.hqsSyncJoin(formatCode(profile.code));
+    const switched = await waitFor(() => sameCode(currentCode(), profile.code), 15e3);
+    if (!switched) {
+      const cur = activeProfile(loadProfiles(), before);
+      throw new Error(`Couldn't reach the sync server \u2014 still on ${cur ? cur.name : "the current profile"}.`);
+    }
+    await new Promise((resolve) => {
+      const done = setTimeout(resolve, 15e3);
+      try {
+        window.hqsSyncNow(() => {
+          clearTimeout(done);
+          resolve();
+        }, true);
+      } catch {
+        clearTimeout(done);
+        resolve();
+      }
+    });
+  }
+
+  // src/shell/ui.js
+  var keyHook = { fn: null };
+  function h(tag, attrs = {}, ...kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === "class") el.className = v;
+      else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
+      else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? "" : v);
+    }
+    for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+    return el;
+  }
+  var ICONS = {
+    play: "M8 5v14l11-7z",
+    pause: "M6 19h4V5H6v14zm8-14v14h4V5h-4z",
+    rewind: "M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z",
+    forward: "M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z",
+    back: "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
+    home: "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z",
+    search: "M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z",
+    check: "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
+    heart: "M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z",
+    next: "M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z",
+    prev: "M6 6h2v12H6zm3.5 6l8.5 6V6z",
+    volume: "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z",
+    mute: "M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0021 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 003.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z",
+    cc: "M19 4H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z",
+    hd: "M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-8 12H9.5v-2h-2v2H6V9h1.5v2.5h2V9H11v6zm2-6h4c.55 0 1 .45 1 1v4c0 .55-.45 1-1 1h-4V9zm1.5 4.5h2v-3h-2v3z",
+    backspace: "M22 3H7c-.69 0-1.23.35-1.59.88L0 12l5.41 8.11c.36.53.9.89 1.59.89h15a2 2 0 002-2V5a2 2 0 00-2-2zm-3 12.59L17.59 17 14 13.41 10.41 17 9 15.59 12.59 12 9 8.41 10.41 7 14 10.59 17.59 7 19 8.41 15.41 12 19 15.59z",
+    sort: "M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z",
+    tv: "M21 3H3a2 2 0 00-2 2v12a2 2 0 002 2h5v2h8v-2h5a2 2 0 001.99-2L23 5a2 2 0 00-2-2zm0 14H3V5h18v12z",
+    movie: "M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4a2 2 0 00-1.99 2L2 18a2 2 0 002 2h16a2 2 0 002-2V4h-4z",
+    person: "M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z",
+    star: "M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z",
+    lock: "M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z",
+    settings: "M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"
+  };
+  function icon(name, cls = "") {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("class", `jf-icon ${cls}`);
+    const p = document.createElementNS(ns, "path");
+    p.setAttribute("d", ICONS[name] || "");
+    svg.appendChild(p);
+    return svg;
+  }
+  var iconButton = (name, label, onclick, extra = {}) => h("button", { class: `jf-iconbtn ${extra.class || ""}`, "aria-label": label, title: label, onclick, ...extra.attrs }, icon(name));
+  var clock = () => {
+    const el = h("span", { class: "jf-clock" });
+    const tick = () => {
+      const d = /* @__PURE__ */ new Date();
+      el.textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+    };
+    tick();
+    setInterval(tick, 15e3);
+    return el;
+  };
+  var fmtTime = (s) => {
+    s = Math.max(0, Math.floor(s || 0));
+    const hh = Math.floor(s / 3600), mm = Math.floor(s % 3600 / 60), ss = s % 60;
+    return hh ? `${hh}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}` : `${mm}:${String(ss).padStart(2, "0")}`;
+  };
+  var endsAt = (secondsLeft) => {
+    const d = new Date(Date.now() + secondsLeft * 1e3);
+    return `Ends at ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+  var epLabel = (s, e, title) => `S${s}:E${e}${title ? ` - ${title}` : ""}`;
+  function card({ href, onclick, image, imageSize = "w342", title, sub, progress: progress2, badge, shape = "portrait", label }) {
+    const bg = image ? { backgroundImage: `url("${image.startsWith("http") ? image : img(image, imageSize)}")` } : null;
+    const inner = h(
+      "div",
+      { class: "jf-card__box" },
+      h(
+        "div",
+        { class: "jf-card__img", style: bg },
+        !image && h("div", { class: "jf-card__fallback" }, title),
+        progress2 > 0 && h("div", { class: "jf-progress" }, h("div", { class: "jf-progress__fill", style: { width: `${Math.round(progress2 * 100)}%` } })),
+        badge && h("div", { class: "jf-badge" }, badge)
+      ),
+      h("div", { class: "jf-card__title" }, title),
+      sub && h("div", { class: "jf-card__sub" }, sub)
+    );
+    const attrs = { class: `jf-card jf-card--${shape}`, "aria-label": label || [title, sub].filter(Boolean).join(", ") };
+    return href ? h("a", { ...attrs, href }, inner) : h("button", { ...attrs, onclick }, inner);
+  }
+  var section = (title, kids, cls = "jf-row") => h("section", { class: "jf-section" }, h("h2", { class: "jf-section__title" }, title), h("div", { class: cls }, kids));
+  function header({ tabs, active, title } = {}) {
+    const left = !title ? h("div", { class: "jf-header__left" }, h("span", { class: "jf-logo", "aria-label": "Viewbox" }, "Viewbox")) : h(
+      "div",
+      { class: "jf-header__left" },
+      iconButton("back", "Back", () => history.back()),
+      h("a", { class: "jf-iconbtn", href: "/home", "aria-label": "Home" }, icon("home")),
+      title && h("span", { class: "jf-header__title" }, title)
+    );
+    const mid = h("nav", { class: "jf-tabs" }, (tabs || []).map((t) => h("a", { class: `jf-tab${t.id === active ? " jf-tab--active" : ""}`, href: t.href }, t.label)));
+    const signedIn = isSignedIn();
+    const right = h(
+      "div",
+      { class: "jf-header__right" },
+      !signedIn && h("a", { class: "jf-signin", href: "/home#settings" }, "Sign in"),
+      h("a", { class: "jf-iconbtn", href: "/search/", "aria-label": "Search" }, icon("search")),
+      h("a", { class: "jf-iconbtn", href: "/home#settings", "aria-label": "Settings" }, icon("settings")),
+      profileButton(),
+      clock()
+    );
+    return h("header", { class: "jf-header" }, left, mid, right);
+  }
+  function profileButton() {
+    const p = currentProfile();
+    return h(
+      "a",
+      { class: "jf-iconbtn jf-profilebtn", href: "/home#profiles", "aria-label": p ? `Profile: ${p.name}. Switch profile` : "Profiles" },
+      p ? h("span", { class: "jf-profilebtn__avatar", style: { background: p.color } }, initialOf(p.name)) : icon("person")
+    );
+  }
+  var SIGNED_KEY = "fc-tv-signed-in";
+  var isSignedIn = () => {
+    if (document.readyState === "loading") {
+      try {
+        return localStorage.getItem(SIGNED_KEY) === "1";
+      } catch {
+        return false;
+      }
+    }
+    const on = !!document.querySelector('a[href="/account"]');
+    try {
+      localStorage.setItem(SIGNED_KEY, on ? "1" : "0");
+    } catch {
+    }
+    return on;
+  };
+  var toast = (text) => {
+    const t = (document.body || document.documentElement).appendChild(h("div", { class: "fc-toast", role: "status" }, text));
+    setTimeout(() => t.remove(), 2e3);
+  };
+
   // ../scan.js
   var WEEK = 7 * 864e5;
   var day = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -119,18 +644,25 @@
     });
     return { title: (_a = m == null ? void 0 : m[1]) != null ? _a : null, year: (_b = m == null ? void 0 : m[2]) != null ? _b : null, slug: og("url").split("/").pop(), poster: og("image").split("/").pop(), eps };
   }
-  var KEY = "fc-tv-shows";
+  var key = () => {
+    let c = "";
+    try {
+      c = localStorage.getItem("hqs.code") || "";
+    } catch {
+    }
+    return c ? `fc-tv-shows:${c}` : "fc-tv-shows";
+  };
   var load = () => {
     var _a;
     try {
-      return (_a = JSON.parse(localStorage.getItem(KEY))) != null ? _a : {};
+      return (_a = JSON.parse(localStorage.getItem(key()))) != null ? _a : {};
     } catch {
       return {};
     }
   };
   var save = (shows) => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(shows));
+      localStorage.setItem(key(), JSON.stringify(shows));
     } catch {
     }
   };
@@ -448,528 +980,79 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
 .jf-loading__sub { font-size: 24px; color: rgba(255, 255, 255, .8); }
 @keyframes jf-spin { to { transform: rotate(360deg); } }
 html.fc-playing #fc-loading { display: none; }
+
+/* ---- Profiles: "Who's watching?" (Nuvio TV look: NuvioTVSmart profile screen, measured) ---- */
+.nv-profiles { position: relative; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 72px 96px 56px; background: #0d0d0d; color: #fff; text-align: center; box-sizing: border-box; }
+.nv-profiles__brand { font: 700 44px/88px var(--jf-font); letter-spacing: .5px; background: linear-gradient(90deg, #aa5cc3, #00a4dc); -webkit-background-clip: text; color: transparent; }
+.nv-profiles__title { margin: 8px 0 0; font: 500 88px/1.05 var(--jf-font); letter-spacing: -1px; }
+.nv-profiles__subtitle { margin: 24px 0 0; font: 500 36px/1.3 var(--jf-font); color: #b3b3b3; }
+.nv-profiles__grid { display: flex; justify-content: center; align-items: flex-start; gap: 56px; min-height: 476px; margin-top: auto; flex-wrap: wrap; }
+.nv-profiles__status { min-height: 40px; margin: 12px 0 0; font-size: 26px; color: #b3b3b3; display: flex; align-items: center; gap: 16px; }
+.nv-profiles__hint { margin: auto 0 0; font: 500 28px/1.35 var(--jf-font); color: rgba(128, 128, 128, .9); }
+.nv-profile { width: 304px; padding: 16px 20px; display: flex; flex-direction: column; align-items: center; transition: transform 210ms cubic-bezier(.22, 1, .36, 1); }
+.nv-profile:focus { transform: scale(1.04); }
+.nv-profile__ring { position: relative; width: 244px; height: 244px; display: flex; align-items: center; justify-content: center; }
+.nv-profile__ring::before { content: ''; position: absolute; width: 228px; height: 228px; border-radius: 50%; border: 2px solid rgba(51, 51, 51, .75); box-sizing: border-box; transition: all 210ms cubic-bezier(.22, 1, .36, 1); }
+.nv-profile:focus .nv-profile__ring::before { width: 244px; height: 244px; border: 6px solid #fff; }
+.nv-avatar { position: relative; width: 192px; height: 192px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 600 76px/1 var(--jf-font); color: #fff; transition: all 210ms cubic-bezier(.22, 1, .36, 1); }
+.nv-profile:focus .nv-avatar { width: 204px; height: 204px; font-size: 82px; }
+.nv-avatar--add { background: transparent; color: #808080; }
+.nv-avatar--add::before, .nv-avatar--add::after { content: ''; position: absolute; left: 50%; top: 50%; border-radius: 999px; background: currentColor; transform: translate(-50%, -50%); }
+.nv-avatar--add::before { width: 52px; height: 6px; }
+.nv-avatar--add::after { width: 6px; height: 52px; }
+.nv-profile--add:focus .nv-avatar--add { color: #fff; background: rgba(255, 255, 255, .12); }
+.nv-profile__name { margin-top: 24px; font: 500 34px/1.2 var(--jf-font); color: #b3b3b3; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nv-profile:focus .nv-profile__name { color: #fff; font-weight: 600; }
+.nv-profile__badge { margin-top: 16px; min-height: 32px; font: 600 22px/1.1 var(--jf-font); letter-spacing: 1.6px; color: #ffb300; display: flex; align-items: center; gap: 8px; }
+.nv-lock { width: 24px; height: 24px; fill: #b3b3b3; }
+.nv-profiles--compact .nv-profiles__grid { gap: 24px; min-height: 382px; flex-wrap: nowrap; }
+.nv-profiles--compact .nv-profile { width: 248px; padding: 14px; }
+.nv-profiles--compact .nv-profile__ring, .nv-profiles--compact .nv-profile:focus .nv-profile__ring::before { width: 186px; height: 186px; }
+.nv-profiles--compact .nv-profile__ring::before { width: 174px; height: 174px; }
+.nv-profiles--compact .nv-avatar { width: 146px; height: 146px; font-size: 58px; }
+.nv-profiles--compact .nv-profile:focus .nv-avatar { width: 156px; height: 156px; font-size: 62px; }
+.nv-profiles--compact .nv-profile__name { margin-top: 18px; font-size: 26px; }
+.nv-spinner { width: 32px; height: 32px; margin: 0; border-width: 4px; }
+
+/* editor + PIN overlays */
+.nv-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .78); }
+.nv-panel { background: #1a1a1a; border-radius: 16px; padding: 40px 56px; color: #fff; text-align: left; box-shadow: 0 24px 80px rgba(0, 0, 0, .6); }
+.nv-panel__title { margin: 0 0 24px; font: 600 40px/1.2 var(--jf-font); }
+.nv-editor { width: 1280px; }
+.nv-editor__body { display: flex; gap: 56px; }
+.nv-editor__preview { flex: none; padding-top: 12px; }
+.nv-avatar--preview { width: 220px; height: 220px; font-size: 88px; }
+.nv-editor__fields { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.nv-editor__label { margin-top: 12px; font-size: 22px; color: #b3b3b3; }
+.nv-editor__note { margin: 4px 0; font-size: 20px; color: #808080; }
+.nv-editor__msg { min-height: 28px; margin: 8px 0 0; font-size: 22px; color: #ffb4a9; }
+.nv-editor__actions { margin-top: 8px; }
+.nv-input { width: 100%; max-width: 640px; }
+.nv-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.nv-btn { border-radius: 999px !important; }
+.nv-btn--on, .nv-btn--primary { background: #fff !important; color: #111 !important; }
+.nv-btn--danger { color: #ff8a80 !important; }
+.nv-swatches { display: flex; gap: 14px; }
+.nv-swatch { width: 52px; height: 52px; border-radius: 50%; border: 3px solid transparent !important; }
+.nv-swatch--on { border-color: #fff !important; }
+.nv-swatch:focus { transform: scale(1.15); box-shadow: 0 0 0 4px var(--jf-focus); }
+.nv-pin { width: 620px; text-align: center; }
+.nv-pin__dots { display: flex; justify-content: center; gap: 28px; margin: 8px 0 12px; }
+.nv-pin__dot { width: 28px; height: 28px; border-radius: 50%; border: 3px solid #b3b3b3; }
+.nv-pin__dot--on { background: #fff; border-color: #fff; }
+.nv-pin__dots--shake { animation: nv-shake .4s; }
+.nv-pin__msg { min-height: 30px; margin: 0 0 12px; color: #ffb4a9; font-size: 22px; }
+.nv-pin__pad { display: grid; grid-template-columns: repeat(3, 120px); gap: 16px; justify-content: center; }
+.nv-key { height: 88px; border-radius: 16px !important; background: #2a2a2a !important; font-size: 36px !important; display: flex; align-items: center; justify-content: center; }
+.nv-key:last-child { grid-column: 2; }
+.nv-key:focus { background: #fff !important; color: #111 !important; }
+.nv-key .jf-icon { width: 36px; height: 36px; fill: currentColor; }
+@keyframes nv-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-14px); } 75% { transform: translateX(14px); } }
+
+/* header avatar + settings */
+.jf-profilebtn__avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 600 20px/1 var(--jf-font); color: #fff; }
+.jf-settings__avatar { width: 48px; height: 48px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; color: #fff; margin-left: 16px; }
 `;
-
-  // src/shell/cache.js
-  var KEY2 = "fc-tv-swr";
-  var MAX_ITEMS = 40;
-  var MAX_CHARS = 1e6;
-  function createCache(storage) {
-    const st = () => storage || globalThis.localStorage;
-    const read = () => {
-      try {
-        return JSON.parse(st().getItem(KEY2)) || {};
-      } catch {
-        return {};
-      }
-    };
-    return {
-      get(key) {
-        const e = read()[key];
-        return e ? e.v : void 0;
-      },
-      set(key, v) {
-        const all = read();
-        all[key] = { t: Date.now(), v };
-        const byAge = () => Object.keys(all).sort((a, b) => all[a].t - all[b].t);
-        for (const k of byAge().slice(0, Math.max(0, Object.keys(all).length - MAX_ITEMS))) delete all[k];
-        let json = JSON.stringify(all);
-        while (json.length > MAX_CHARS && Object.keys(all).length > 1) {
-          delete all[byAge()[0]];
-          json = JSON.stringify(all);
-        }
-        try {
-          st().setItem(KEY2, json);
-        } catch {
-          try {
-            st().removeItem(KEY2);
-          } catch {
-          }
-        }
-      }
-    };
-  }
-  var cache = createCache();
-  var same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-  function swr(key, load2, onFresh, store = cache) {
-    const stale = store.get(key);
-    const fresh = load2().then((v) => {
-      store.set(key, v);
-      if (stale !== void 0 && onFresh && !same(v, stale)) onFresh(v);
-      return v;
-    });
-    if (stale === void 0) return fresh;
-    fresh.catch(() => {
-    });
-    return Promise.resolve(stale);
-  }
-
-  // src/shell/data.js
-  var IMG = "https://img.xcdn.to/t/p";
-  var unescape = (s) => String(s || "").replace(/\\(['"])/g, "$1");
-  var img = (file, size = "w342") => file ? `${IMG}/${size}/${String(file).replace(/^\//, "")}` : "";
-  function parsePos(key, value) {
-    const k = key.split(":");
-    const v = String(value || "").split(":").map(Number);
-    if (k[0] !== "pos" || !k[1] || v.length < 3 || !(v[1] > 0)) return null;
-    const e = { pid: k[1], pos: v[0], dur: v[1], ts: v[2] * 1e3, pct: v[0] / v[1] };
-    if (k.length >= 4) Object.assign(e, { type: "tv", season: +k[2], episode: +k[3] });
-    else e.type = "movie";
-    return e;
-  }
-  var STARTED = 0.05;
-  var FINISHED = 0.9;
-  function continueWatching(entries) {
-    const seen = /* @__PURE__ */ new Set();
-    return entries.filter((e) => e.pct > STARTED && e.pct < FINISHED).sort((a, b) => b.ts - a.ts).filter((e) => seen.has(e.pid) ? false : seen.add(e.pid));
-  }
-  function nextUp(entries, epsByPid) {
-    const latest = /* @__PURE__ */ new Map();
-    for (const e of entries.filter((x) => x.type === "tv").sort((a, b) => b.ts - a.ts)) if (!latest.has(e.pid)) latest.set(e.pid, e);
-    const out = [];
-    for (const e of latest.values()) {
-      if (e.pct < FINISHED) continue;
-      const eps = (epsByPid[e.pid] || []).filter((x) => x.season > 0).sort((a, b) => a.season - b.season || a.episode - b.episode);
-      const i = eps.findIndex((x) => x.season === e.season && x.episode === e.episode);
-      if (i >= 0 && eps[i + 1]) out.push({ ...eps[i + 1], pid: e.pid, ts: e.ts });
-    }
-    return out;
-  }
-  function progressIndex(entries) {
-    const idx = { movie: {}, show: {}, episode: {} };
-    const inProgress = (pct) => pct > STARTED && pct < FINISHED;
-    const latest = {};
-    for (const e of entries) {
-      if (e.type === "movie") {
-        if (inProgress(e.pct)) idx.movie[e.pid] = e.pct;
-        continue;
-      }
-      if (inProgress(e.pct)) idx.episode[`${e.pid}:${e.season}:${e.episode}`] = e.pct;
-      if (!latest[e.pid] || e.ts > latest[e.pid].ts) latest[e.pid] = e;
-    }
-    for (const [pid, e] of Object.entries(latest)) if (inProgress(e.pct)) idx.show[pid] = e.pct;
-    return idx;
-  }
-  var progressOf = (idx, c) => (c.type === "movie" ? idx.movie[c.pid] : c.season ? idx.episode[`${c.pid}:${c.season}:${c.episode}`] : idx.show[c.pid]) || 0;
-  var backdropFromHtml = (html) => (/url\("?https:\/\/img\.xcdn\.to\/t\/p\/w1280\/([A-Za-z0-9_-]+\.jpg)/.exec(html) || [])[1] || null;
-  function parseCards(root) {
-    return [...root.querySelectorAll(".cflip[data-href]")].map((c) => {
-      var _a, _b, _c, _d, _e, _f, _g, _h;
-      const href = c.dataset.href;
-      const [, , type, pid, slug, , season, , episode] = href.split("/");
-      const poster = (((_a = c.querySelector("img.card-img-top")) == null ? void 0 : _a.getAttribute("src")) || ((_b = c.querySelector("img[data-src]")) == null ? void 0 : _b.dataset.src) || "").split("/").pop();
-      const badge = ((_c = c.querySelector(".card-badge.top .badge")) == null ? void 0 : _c.textContent.trim()) || "";
-      return {
-        href,
-        pid,
-        slug,
-        type: type === "movie" ? "movie" : "tv",
-        title: unescape(((_e = (_d = c.querySelector("img")) == null ? void 0 : _d.alt) == null ? void 0 : _e.trim()) || ((_f = c.querySelector(".card-footer")) == null ? void 0 : _f.textContent.trim()) || ""),
-        year: /^\d{4}$/.test(badge) ? badge : ((_g = c.querySelector(".card-text.t12")) == null ? void 0 : _g.textContent.trim()) || "",
-        poster,
-        season: season ? +season : null,
-        episode: episode ? +episode : null,
-        rating: ((_h = c.querySelector(".card-badge.bottom .badge")) == null ? void 0 : _h.textContent.trim()) || ""
-      };
-    });
-  }
-  function parseHero(root) {
-    return [...root.querySelectorAll(".carousel-item")].map((s) => {
-      var _a, _b;
-      const cap = s.querySelector(".carousel-caption-container[data-href]");
-      const bg = /\/t\/p\/original\/([A-Za-z0-9_-]+\.jpg)/.exec(s.getAttribute("style") || "");
-      return cap && {
-        href: cap.dataset.href,
-        title: ((_a = cap.querySelector(".font-weight-normal")) == null ? void 0 : _a.textContent.trim()) || "",
-        overview: ((_b = cap.querySelector(".t16")) == null ? void 0 : _b.textContent.trim()) || "",
-        backdrop: bg ? bg[1] : null
-      };
-    }).filter(Boolean);
-  }
-  function parseHome(root) {
-    const row = (k) => parseCards(root.querySelector(`.contentList${k}`) || root.createElement("div"));
-    return { hero: parseHero(root), popular: row("R"), latest: row("E"), tv: row("T"), movies: row("M") };
-  }
-  var lastPage = (root) => Math.max(1, ...[...root.querySelectorAll(".searchnav[data-p]")].map((a) => +a.dataset.p || 1));
-  function parseDetails(doc, html) {
-    var _a, _b, _c, _d, _e;
-    const ov = doc.querySelector(".section-watch-overview");
-    const badge = (title) => {
-      var _a2;
-      return ((_a2 = [...(ov == null ? void 0 : ov.querySelectorAll(".badge[title]")) || []].find((b) => b.title === title)) == null ? void 0 : _a2.textContent.trim()) || "";
-    };
-    const header2 = ov == null ? void 0 : ov.querySelector(".watch-header");
-    const links = (type) => [...(ov == null ? void 0 : ov.querySelectorAll(`.show.link[data-type="${type}"]`)) || []].map((a) => a.textContent.trim());
-    const seasons = [...doc.querySelectorAll(".section-watch-season")].map((sec) => {
-      var _a2, _b2, _c2;
-      const rows = [...sec.querySelectorAll("tr.eplist")].map((r) => {
-        var _a3, _b3, _c3;
-        return {
-          season: +r.dataset.pes,
-          episode: +r.dataset.pep,
-          epid: +r.dataset.epid,
-          title: ((_a3 = r.querySelector(".epTitle")) == null ? void 0 : _a3.textContent.trim()) || "",
-          thumb: (((_b3 = r.querySelector("img.watch-episode-thumb")) == null ? void 0 : _b3.dataset.img) || "").replace(/^\//, ""),
-          airDate: ((_c3 = r.querySelector(".hidden-md-up")) == null ? void 0 : _c3.textContent.trim()) || ""
-        };
-      }).sort((a, b) => a.episode - b.episode);
-      const poster = (((_a2 = sec.querySelector("img.watch-season-thumb")) == null ? void 0 : _a2.dataset.img) || "").replace(/^\//, "");
-      return { season: (_c2 = (_b2 = rows[0]) == null ? void 0 : _b2.season) != null ? _c2 : null, poster, episodes: rows };
-    }).filter((s) => s.season !== null).sort((a, b) => a.season - b.season);
-    return {
-      slug: (((_a = doc.querySelector('meta[property="og:url"]')) == null ? void 0 : _a.content) || "").split("/").pop(),
-      title: ((_b = header2 == null ? void 0 : header2.childNodes[0]) == null ? void 0 : _b.textContent.trim()) || "",
-      year: (/\((\d{4})\)/.exec((header2 == null ? void 0 : header2.textContent) || "") || [])[1] || "",
-      poster: (((_c = ov == null ? void 0 : ov.querySelector("img[data-img]")) == null ? void 0 : _c.dataset.img) || "").replace(/^\//, ""),
-      backdrop: backdropFromHtml(html),
-      overview: ((_d = ov == null ? void 0 : ov.querySelector(".moreless-content")) == null ? void 0 : _d.textContent.trim()) || "",
-      rating: ((_e = ov == null ? void 0 : ov.querySelector('.badge[title^="Rated"]')) == null ? void 0 : _e.textContent.trim()) || "",
-      contentRating: badge("US Content Rating"),
-      genres: links("genre"),
-      network: links("network")[0] || "",
-      seasons,
-      similar: parseCards(doc.querySelector(".section-watch-recomm") || doc.createElement("div"))
-    };
-  }
-  var toDoc = (html) => new DOMParser().parseFromString(html, "text/html");
-  async function get(url) {
-    const r = await fetch(url, { credentials: "same-origin" });
-    if (!r.ok) throw new Error(`${r.status} ${url}`);
-    return r.text();
-  }
-  function library(kind, page = 1, sort = "latest", onFresh) {
-    return swr(`lib:${kind}:${sort}:${page}`, async () => {
-      const doc = toDoc(await get(`/show/${kind === "movies" ? "movies" : "tvshows"}?page=${page}&sort=${sort}&ajax=1`));
-      return { cards: parseCards(doc), lastPage: lastPage(doc) };
-    }, onFresh);
-  }
-  function search(query, page = 1, onFresh) {
-    return swr(`search:${query.toLowerCase()}:${page}`, async () => {
-      const doc = toDoc(await get(`/search/${encodeURIComponent(query)}?ajax=1&tab=movies,tvshows${page > 1 ? `&page=${page}` : ""}`));
-      return { cards: parseCards(doc), lastPage: lastPage(doc) };
-    }, onFresh);
-  }
-  var parseLibraryPage = (root, kind) => ({
-    cards: parseCards(root.querySelector("#content") || root).filter((c) => c.type === (kind === "movies" ? "movie" : "tv")),
-    lastPage: lastPage(root)
-  });
-  async function details(type, pid) {
-    const html = await get(`/watch/${type === "movie" ? "movie" : "tv"}/${pid}`);
-    return parseDetails(toDoc(html), html);
-  }
-  function watchEntries(storage = localStorage) {
-    const out = [];
-    for (let i = 0; i < storage.length; i++) {
-      const k = storage.key(i);
-      if (k && k.startsWith("pos:")) {
-        const e = parsePos(k, storage.getItem(k));
-        if (e) out.push(e);
-      }
-    }
-    return out;
-  }
-  var META_KEY = "fc-tv-meta";
-  var metaCache = {
-    all() {
-      try {
-        return JSON.parse(localStorage.getItem(META_KEY)) || {};
-      } catch {
-        return {};
-      }
-    },
-    put(pid, m) {
-      const all = this.all();
-      all[pid] = { ...all[pid], ...m, ts: Date.now() };
-      try {
-        localStorage.setItem(META_KEY, JSON.stringify(all));
-      } catch {
-      }
-    }
-  };
-
-  // src/shell/ui.js
-  function h(tag, attrs = {}, ...kids) {
-    const el = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs || {})) {
-      if (v == null || v === false) continue;
-      if (k === "class") el.className = v;
-      else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
-      else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
-      else el.setAttribute(k, v === true ? "" : v);
-    }
-    for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
-    return el;
-  }
-  var ICONS = {
-    play: "M8 5v14l11-7z",
-    pause: "M6 19h4V5H6v14zm8-14v14h4V5h-4z",
-    rewind: "M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z",
-    forward: "M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z",
-    back: "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
-    home: "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z",
-    search: "M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z",
-    check: "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
-    heart: "M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z",
-    next: "M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z",
-    prev: "M6 6h2v12H6zm3.5 6l8.5 6V6z",
-    volume: "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z",
-    mute: "M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0021 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 003.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z",
-    cc: "M19 4H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z",
-    hd: "M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-8 12H9.5v-2h-2v2H6V9h1.5v2.5h2V9H11v6zm2-6h4c.55 0 1 .45 1 1v4c0 .55-.45 1-1 1h-4V9zm1.5 4.5h2v-3h-2v3z",
-    backspace: "M22 3H7c-.69 0-1.23.35-1.59.88L0 12l5.41 8.11c.36.53.9.89 1.59.89h15a2 2 0 002-2V5a2 2 0 00-2-2zm-3 12.59L17.59 17 14 13.41 10.41 17 9 15.59 12.59 12 9 8.41 10.41 7 14 10.59 17.59 7 19 8.41 15.41 12 19 15.59z",
-    sort: "M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z",
-    tv: "M21 3H3a2 2 0 00-2 2v12a2 2 0 002 2h5v2h8v-2h5a2 2 0 001.99-2L23 5a2 2 0 00-2-2zm0 14H3V5h18v12z",
-    movie: "M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4a2 2 0 00-1.99 2L2 18a2 2 0 002 2h16a2 2 0 002-2V4h-4z",
-    person: "M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z",
-    star: "M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"
-  };
-  function icon(name, cls = "") {
-    const ns = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(ns, "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("aria-hidden", "true");
-    svg.setAttribute("class", `jf-icon ${cls}`);
-    const p = document.createElementNS(ns, "path");
-    p.setAttribute("d", ICONS[name] || "");
-    svg.appendChild(p);
-    return svg;
-  }
-  var iconButton = (name, label, onclick, extra = {}) => h("button", { class: `jf-iconbtn ${extra.class || ""}`, "aria-label": label, title: label, onclick, ...extra.attrs }, icon(name));
-  var clock = () => {
-    const el = h("span", { class: "jf-clock" });
-    const tick = () => {
-      const d = /* @__PURE__ */ new Date();
-      el.textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
-    };
-    tick();
-    setInterval(tick, 15e3);
-    return el;
-  };
-  var fmtTime = (s) => {
-    s = Math.max(0, Math.floor(s || 0));
-    const hh = Math.floor(s / 3600), mm = Math.floor(s % 3600 / 60), ss = s % 60;
-    return hh ? `${hh}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}` : `${mm}:${String(ss).padStart(2, "0")}`;
-  };
-  var endsAt = (secondsLeft) => {
-    const d = new Date(Date.now() + secondsLeft * 1e3);
-    return `Ends at ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
-  };
-  var epLabel = (s, e, title) => `S${s}:E${e}${title ? ` - ${title}` : ""}`;
-  function card({ href, onclick, image, imageSize = "w342", title, sub, progress: progress2, badge, shape = "portrait", label }) {
-    const bg = image ? { backgroundImage: `url("${image.startsWith("http") ? image : img(image, imageSize)}")` } : null;
-    const inner = h(
-      "div",
-      { class: "jf-card__box" },
-      h(
-        "div",
-        { class: "jf-card__img", style: bg },
-        !image && h("div", { class: "jf-card__fallback" }, title),
-        progress2 > 0 && h("div", { class: "jf-progress" }, h("div", { class: "jf-progress__fill", style: { width: `${Math.round(progress2 * 100)}%` } })),
-        badge && h("div", { class: "jf-badge" }, badge)
-      ),
-      h("div", { class: "jf-card__title" }, title),
-      sub && h("div", { class: "jf-card__sub" }, sub)
-    );
-    const attrs = { class: `jf-card jf-card--${shape}`, "aria-label": label || [title, sub].filter(Boolean).join(", ") };
-    return href ? h("a", { ...attrs, href }, inner) : h("button", { ...attrs, onclick }, inner);
-  }
-  var section = (title, kids, cls = "jf-row") => h("section", { class: "jf-section" }, h("h2", { class: "jf-section__title" }, title), h("div", { class: cls }, kids));
-  function header({ tabs, active, title } = {}) {
-    const left = !title ? h("div", { class: "jf-header__left" }, h("span", { class: "jf-logo", "aria-label": "Viewbox" }, "Viewbox")) : h(
-      "div",
-      { class: "jf-header__left" },
-      iconButton("back", "Back", () => history.back()),
-      h("a", { class: "jf-iconbtn", href: "/home", "aria-label": "Home" }, icon("home")),
-      title && h("span", { class: "jf-header__title" }, title)
-    );
-    const mid = h("nav", { class: "jf-tabs" }, (tabs || []).map((t) => h("a", { class: `jf-tab${t.id === active ? " jf-tab--active" : ""}`, href: t.href }, t.label)));
-    const signedIn = isSignedIn();
-    const right = h(
-      "div",
-      { class: "jf-header__right" },
-      !signedIn && h("a", { class: "jf-signin", href: "/home#settings" }, "Sign in"),
-      h("a", { class: "jf-iconbtn", href: "/search/", "aria-label": "Search" }, icon("search")),
-      h("a", { class: "jf-iconbtn", href: "/home#settings", "aria-label": "Settings" }, icon("person")),
-      clock()
-    );
-    return h("header", { class: "jf-header" }, left, mid, right);
-  }
-  var SIGNED_KEY = "fc-tv-signed-in";
-  var isSignedIn = () => {
-    if (document.readyState === "loading") {
-      try {
-        return localStorage.getItem(SIGNED_KEY) === "1";
-      } catch {
-        return false;
-      }
-    }
-    const on = !!document.querySelector('a[href="/account"]');
-    try {
-      localStorage.setItem(SIGNED_KEY, on ? "1" : "0");
-    } catch {
-    }
-    return on;
-  };
-  var toast = (text) => {
-    const t = (document.body || document.documentElement).appendChild(h("div", { class: "fc-toast", role: "status" }, text));
-    setTimeout(() => t.remove(), 2e3);
-  };
-
-  // src/shell/settings.js
-  var SYNC_KEY = "hqs.code";
-  var PENDING_SYNC = "fc-pending-sync";
-  var SETTINGS_KEY = "fc-tv-settings";
-  var formatCode = (raw) => {
-    const c = String(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 9);
-    return c.length > 8 ? `${c.slice(0, 4)}-${c.slice(4, 8)}-${c.slice(8)}` : c.length > 4 ? `${c.slice(0, 4)}-${c.slice(4)}` : c;
-  };
-  var validCode = (code) => /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]$/.test(code);
-  var activeCode = () => {
-    try {
-      return localStorage.getItem(SYNC_KEY);
-    } catch (e) {
-      return null;
-    }
-  };
-  async function signIn(email, password) {
-    var _a;
-    const r = await fetch("/ajax/viplogin", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "X-CSRF-Token": ((_a = document.querySelector('meta[name="csrf-token"]')) == null ? void 0 : _a.content) || ""
-      },
-      body: JSON.stringify({ uname: email, passw: password })
-    });
-    const body = await r.text();
-    if (r.status === 401) throw new Error(body.slice(0, 120) || "Wrong email or password.");
-    if (!r.ok) throw new Error(`Sign-in failed (HTTP ${r.status}).`);
-    if (/"status"\s*:\s*"expired"/.test(body)) throw new Error("Your VIP membership has expired.");
-  }
-  var field = (label, input) => h("label", { class: "jf-field" }, h("span", { class: "jf-field__label" }, label), input);
-  function settingsView(app2) {
-    const main = h("main", { class: "jf-main jf-settings" });
-    app2.append(header({ title: "Settings" }), main);
-    const signedIn = isSignedIn();
-    const email = h("input", { class: "jf-input", type: "email", autocomplete: "username", placeholder: "VIP email" });
-    const password = h("input", { class: "jf-input", type: "password", autocomplete: "current-password", placeholder: "Password" });
-    const accountMsg = h("p", { class: "jf-settings__msg", role: "status" });
-    const signInBtn = h("button", { class: "jf-button", onclick: async () => {
-      if (!email.value.trim() || !password.value) {
-        accountMsg.textContent = "Enter your VIP email and password.";
-        return;
-      }
-      accountMsg.textContent = "Signing in\u2026";
-      try {
-        await signIn(email.value.trim(), password.value);
-        accountMsg.textContent = "Signed in.";
-        setTimeout(() => location.reload(), 600);
-      } catch (e) {
-        accountMsg.textContent = e.message;
-      }
-    } }, "Sign in");
-    const account = h(
-      "section",
-      { class: "jf-settings__section" },
-      h("h2", { class: "jf-section__title" }, "Account"),
-      signedIn ? h("p", { class: "jf-settings__status" }, "\u2713 Signed in to your VIP account.") : h("div", { class: "jf-settings__form" }, h("p", { class: "jf-settings__status" }, "Not signed in. Your lists need a VIP sign-in."), field("Email", email), field("Password", password), signInBtn, accountMsg)
-    );
-    const current = activeCode();
-    const codeInput = h("input", { class: "jf-input jf-input--code", type: "text", autocomplete: "off", spellcheck: "false", placeholder: "XXXX-XXXX-X", maxlength: "11" });
-    codeInput.addEventListener("input", () => {
-      const v = formatCode(codeInput.value);
-      if (v !== codeInput.value) codeInput.value = v;
-    });
-    const syncMsg = h("p", { class: "jf-settings__msg", role: "status" });
-    const applyBtn = h("button", { class: "jf-button", onclick: () => {
-      const code = formatCode(codeInput.value);
-      if (!validCode(code)) {
-        syncMsg.textContent = "A sync code looks like ABCD-1234-X (9 letters/digits).";
-        return;
-      }
-      if (!isSignedIn()) {
-        syncMsg.textContent = "Sign in first \u2014 the site only loads lists for a signed-in VIP account.";
-        return;
-      }
-      try {
-        localStorage.setItem(PENDING_SYNC, code);
-      } catch (e) {
-      }
-      syncMsg.textContent = "Applying\u2026";
-      location.assign("/mylists/favorites");
-    } }, "Apply");
-    const sync = h(
-      "section",
-      { class: "jf-settings__section" },
-      h("h2", { class: "jf-section__title" }, "Your lists (Sync Code)"),
-      h("p", { class: "jf-settings__status" }, current ? `Active sync code: ${formatCode(current)}` : "No sync code on this TV yet \u2014 your Favourites stay empty until you add one."),
-      h("div", { class: "jf-settings__form" }, field(current ? "Change sync code" : "Sync code", codeInput), applyBtn, syncMsg)
-    );
-    const prefs = (() => {
-      try {
-        return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
-      } catch (e) {
-        return {};
-      }
-    })();
-    const autoplayOn = prefs.autoplayEnabled !== false;
-    const autoplayBtn = h("button", { class: `jf-toggle${autoplayOn ? " jf-toggle--on" : ""}`, role: "switch", "aria-checked": String(autoplayOn), onclick: () => {
-      const p = (() => {
-        try {
-          return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
-        } catch (e) {
-          return {};
-        }
-      })();
-      p.autoplayEnabled = p.autoplayEnabled === false;
-      try {
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify(p));
-      } catch (e) {
-      }
-      autoplayBtn.classList.toggle("jf-toggle--on", p.autoplayEnabled);
-      autoplayBtn.setAttribute("aria-checked", String(p.autoplayEnabled));
-      toast(`Autoplay ${p.autoplayEnabled ? "on" : "off"}`);
-    } }, "Play the next episode automatically");
-    const playback = h("section", { class: "jf-settings__section" }, h("h2", { class: "jf-section__title" }, "Playback"), autoplayBtn);
-    const about = h(
-      "section",
-      { class: "jf-settings__section" },
-      h("h2", { class: "jf-section__title" }, "About"),
-      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.4.4" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
-      h("p", { class: "jf-settings__about" }, navigator.userAgent)
-    );
-    main.append(account, sync, playback, about);
-    setTimeout(() => (signedIn ? codeInput : email).focus({ preventScroll: true }), 0);
-  }
-  function applyPendingSync() {
-    let code = null;
-    try {
-      code = localStorage.getItem(PENDING_SYNC);
-    } catch (e) {
-    }
-    const input = document.querySelector("#syncCodeInput");
-    if (!code || !input) return null;
-    try {
-      localStorage.removeItem(PENDING_SYNC);
-    } catch (e) {
-    }
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        input.value = code;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        let tries = 0;
-        const t = setInterval(() => {
-          const now = activeCode();
-          const ok = now && formatCode(now) === code;
-          if (ok || ++tries > 30) {
-            clearInterval(t);
-            resolve(!!ok);
-          }
-        }, 500);
-      }, 500);
-    });
-  }
 
   // src/shell/meta.js
   var TTL = 24 * 36e5;
@@ -1089,9 +1172,8 @@ html.fc-playing #fc-loading { display: none; }
     app2.append(header({ tabs: HOME_TABS, active: "favourites" }), main);
     const settingsLink = (text) => h("p", { class: "jf-empty" }, text, " ", h("a", { class: "jf-button jf-button--inline", href: "/home#settings" }, "Open Settings"));
     let loading2 = true;
-    let note = null;
     const itemsNow = () => [...favoritePids2("t").map((pid) => ({ pid, type: "tv" })), ...favoritePids2("m").map((pid) => ({ pid, type: "movie" }))];
-    const draw = () => {
+    const draw2 = () => {
       const items = itemsNow();
       const meta = metaCache.all();
       const scanned = load();
@@ -1104,12 +1186,12 @@ html.fc-playing #fc-loading { display: none; }
       let empty = "";
       if (!shows.length && !movies.length) {
         if (!isSignedIn()) empty = settingsLink("Sign in to your VIP account to see your favourites.");
-        else if (!items.length && !localStorage.getItem("hqs.code")) empty = settingsLink("No favourites yet \u2014 add your list's Sync Code in Settings to load them.");
+        else if (!items.length && !localStorage.getItem("hqs.code")) empty = h("p", { class: "jf-empty" }, "No profile yet \u2014 your favourites come with a profile (tied to a sync code).", " ", h("a", { class: "jf-button jf-button--inline", href: "/home#profiles-manage" }, "Add a profile"));
         else if (!items.length) empty = h("p", { class: "jf-empty" }, "No favourites in this list yet.");
         else empty = h("p", { class: "jf-empty" }, loading2 ? "Loading favourites\u2026" : "Couldn't load your favourites. Try again later.");
       }
       const had = main.contains(document.activeElement);
-      main.replaceChildren(note || "", shows.length ? section("Shows", shows, "jf-grid") : "", movies.length ? section("Movies", movies, "jf-grid") : "", empty);
+      main.replaceChildren(shows.length ? section("Shows", shows, "jf-grid") : "", movies.length ? section("Movies", movies, "jf-grid") : "", empty);
       if (!had) focusFirst(main);
     };
     const load2 = () => {
@@ -1118,22 +1200,13 @@ html.fc-playing #fc-loading { display: none; }
       ensureMeta(itemsNow().filter((i) => {
         var _a;
         return !((_a = scanned[i.pid]) == null ? void 0 : _a.title);
-      }), 60, draw).then(() => {
+      }), 60, draw2).then(() => {
         loading2 = false;
-        draw();
+        draw2();
       });
     };
-    draw();
-    const pending = applyPendingSync();
-    if (pending) {
-      note = h("p", { class: "jf-empty", role: "status" }, "Applying your sync code\u2026");
-      draw();
-      pending.then((ok) => {
-        note = h("p", { class: "jf-empty", role: "status" }, ok ? "Sync code applied." : "That sync code wasn't accepted \u2014 check it in Settings.");
-        toast(ok ? "Sync code applied" : "Sync code not accepted");
-        setTimeout(load2, 1500);
-      });
-    } else load2();
+    draw2();
+    load2();
   }
   var SORTS = [["latest", "Latest"], ["best", "Best Rated"], ["name", "Name"]];
   function libraryView(app2, kind, first) {
@@ -1405,6 +1478,411 @@ html.fc-playing #fc-loading { display: none; }
     render();
   }
 
+  // src/shell/settings.js
+  var SETTINGS_KEY = "fc-tv-settings";
+  async function signIn(email, password) {
+    var _a;
+    const r = await fetch("/ajax/viplogin", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-CSRF-Token": ((_a = document.querySelector('meta[name="csrf-token"]')) == null ? void 0 : _a.content) || ""
+      },
+      body: JSON.stringify({ uname: email, passw: password })
+    });
+    const body = await r.text();
+    if (r.status === 401) throw new Error(body.slice(0, 120) || "Wrong email or password.");
+    if (!r.ok) throw new Error(`Sign-in failed (HTTP ${r.status}).`);
+    if (/"status"\s*:\s*"expired"/.test(body)) throw new Error("Your VIP membership has expired.");
+  }
+  var field = (label, input) => h("label", { class: "jf-field" }, h("span", { class: "jf-field__label" }, label), input);
+  function settingsView(app2) {
+    const main = h("main", { class: "jf-main jf-settings" });
+    app2.append(header({ title: "Settings" }), main);
+    const signedIn = isSignedIn();
+    const email = h("input", { class: "jf-input", type: "email", autocomplete: "username", placeholder: "VIP email" });
+    const password = h("input", { class: "jf-input", type: "password", autocomplete: "current-password", placeholder: "Password" });
+    const accountMsg = h("p", { class: "jf-settings__msg", role: "status" });
+    const signInBtn = h("button", { class: "jf-button", onclick: async () => {
+      if (!email.value.trim() || !password.value) {
+        accountMsg.textContent = "Enter your VIP email and password.";
+        return;
+      }
+      accountMsg.textContent = "Signing in\u2026";
+      try {
+        await signIn(email.value.trim(), password.value);
+        accountMsg.textContent = "Signed in.";
+        setTimeout(() => location.reload(), 600);
+      } catch (e) {
+        accountMsg.textContent = e.message;
+      }
+    } }, "Sign in");
+    const account = h(
+      "section",
+      { class: "jf-settings__section" },
+      h("h2", { class: "jf-section__title" }, "Account"),
+      signedIn ? h("p", { class: "jf-settings__status" }, "\u2713 Signed in to your VIP account.") : h("div", { class: "jf-settings__form" }, h("p", { class: "jf-settings__status" }, "Not signed in. Your lists need a VIP sign-in."), field("Email", email), field("Password", password), signInBtn, accountMsg)
+    );
+    const profiles = loadProfiles();
+    const cur = currentProfile();
+    const sync = h(
+      "section",
+      { class: "jf-settings__section" },
+      h("h2", { class: "jf-section__title" }, "Profiles"),
+      h("p", { class: "jf-settings__status" }, profiles.length ? `${profiles.map((p) => p.name).join(", ")}${cur ? ` \u2014 watching as ${cur.name}` : ""}` : "No profiles yet. Add one to keep your favourites and watch history (it's tied to a sync code)."),
+      h(
+        "div",
+        { class: "jf-settings__form" },
+        h("a", { class: "jf-button", href: "/home#profiles-manage" }, profiles.length ? "Manage profiles" : "Add a profile"),
+        cur && h("span", { class: "jf-settings__avatar", style: { background: cur.color } }, initialOf(cur.name))
+      )
+    );
+    const prefs = (() => {
+      try {
+        return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+      } catch (e) {
+        return {};
+      }
+    })();
+    const autoplayOn = prefs.autoplayEnabled !== false;
+    const autoplayBtn = h("button", { class: `jf-toggle${autoplayOn ? " jf-toggle--on" : ""}`, role: "switch", "aria-checked": String(autoplayOn), onclick: () => {
+      const p = (() => {
+        try {
+          return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+        } catch (e) {
+          return {};
+        }
+      })();
+      p.autoplayEnabled = p.autoplayEnabled === false;
+      try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(p));
+      } catch (e) {
+      }
+      autoplayBtn.classList.toggle("jf-toggle--on", p.autoplayEnabled);
+      autoplayBtn.setAttribute("aria-checked", String(p.autoplayEnabled));
+      toast(`Autoplay ${p.autoplayEnabled ? "on" : "off"}`);
+    } }, "Play the next episode automatically");
+    const playback = h("section", { class: "jf-settings__section" }, h("h2", { class: "jf-section__title" }, "Playback"), autoplayBtn);
+    const about = h(
+      "section",
+      { class: "jf-settings__section" },
+      h("h2", { class: "jf-section__title" }, "About"),
+      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.5.0" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
+      h("p", { class: "jf-settings__about" }, navigator.userAgent)
+    );
+    main.append(account, sync, playback, about);
+    setTimeout(() => (signedIn ? sync.querySelector(".jf-button") : email).focus({ preventScroll: true }), 0);
+  }
+
+  // src/shell/profileScreen.js
+  var BACK = [10009, 27, 8];
+  var HOLD_MS = 600;
+  var digitOf = (code) => code >= 48 && code <= 57 ? code - 48 : code >= 96 && code <= 105 ? code - 96 : -1;
+  function profilesView(app2, { manage = false, onDone } = {}) {
+    let list = loadProfiles();
+    let overlay = null;
+    const status = h("p", { class: "nv-profiles__status", role: "status" });
+    const root = h("div", { class: "nv-profiles" });
+    app2.replaceChildren(root);
+    const avatar = (p, cls = "nv-avatar") => h("div", { class: cls, style: { background: p.color } }, initialOf(p.name));
+    const setStatus = (text, busy) => {
+      status.replaceChildren(busy ? h("span", { class: "jf-spinner nv-spinner" }) : "", text || "");
+    };
+    function render(focusId) {
+      list = loadProfiles();
+      const active = currentProfile();
+      const cards = list.map((p) => h(
+        "button",
+        { class: "nv-profile", "data-id": p.id, "aria-label": p.name },
+        h("div", { class: "nv-profile__ring" }, avatar(p)),
+        h("div", { class: "nv-profile__name" }, p.name),
+        h("div", { class: "nv-profile__badge" }, p.pinHash ? icon("lock", "nv-lock") : "", active && active.id === p.id ? "CURRENT" : "")
+      ));
+      if (list.length < MAX_PROFILES) {
+        cards.push(h(
+          "button",
+          { class: "nv-profile nv-profile--add", "data-id": "add", "aria-label": "Add Profile" },
+          h("div", { class: "nv-profile__ring" }, h("div", { class: "nv-avatar nv-avatar--add" })),
+          h("div", { class: "nv-profile__name" }, "Add Profile"),
+          h("div", { class: "nv-profile__badge" })
+        ));
+      }
+      root.className = `nv-profiles${cards.length >= 5 ? " nv-profiles--compact" : ""}`;
+      root.replaceChildren(
+        h("div", { class: "nv-profiles__brand" }, "Viewbox"),
+        h("h1", { class: "nv-profiles__title" }, manage ? "Manage Profiles" : "Who's watching?"),
+        h("p", { class: "nv-profiles__subtitle" }, manage ? "Select a profile to edit, or add a new one" : "Select a profile to continue"),
+        h("div", { class: "nv-profiles__grid" }, cards),
+        status,
+        h("p", { class: "nv-profiles__hint" }, manage ? "Press Back when you're done" : "Hold OK to edit a profile")
+      );
+      const target = root.querySelector(`.nv-profile[data-id="${focusId || active && active.id || list[0] && list[0].id || "add"}"]`) || root.querySelector(".nv-profile");
+      setTimeout(() => target && target.focus({ preventScroll: true }), 0);
+    }
+    async function choose(p) {
+      if (p.pinHash && !await askPin(`Enter PIN for ${p.name}`, (pin) => checkPin(p, pin))) return;
+      const active = currentProfile();
+      markChosen();
+      if (active && active.id === p.id) return finish();
+      setStatus(`Switching to ${p.name}\u2026`, true);
+      try {
+        await switchTo(p);
+        location.assign("/home");
+      } catch (e) {
+        setStatus(e.message);
+      }
+    }
+    const finish = () => onDone ? onDone() : location.hash = "";
+    function activate(id, held2) {
+      if (id === "add") return openEditor(null);
+      const p = list.find((x) => x.id === id);
+      if (!p) return;
+      if (manage || held2) openEditor(p);
+      else choose(p);
+    }
+    function openOverlay(panel, onBack) {
+      const el = h("div", { class: "nv-overlay" }, panel);
+      root.append(el);
+      overlay = { el, back: onBack };
+      return el;
+    }
+    function closeOverlay(focusId) {
+      if (!overlay) return;
+      overlay.el.remove();
+      overlay = null;
+      render(focusId);
+    }
+    function askPin(title, verify) {
+      return new Promise((resolve) => {
+        const prev = overlay;
+        let pin = "";
+        const dots = h("div", { class: "nv-pin__dots" }, [0, 1, 2, 3].map(() => h("span", { class: "nv-pin__dot" })));
+        const msg = h("p", { class: "nv-pin__msg", role: "status" });
+        const show = () => [...dots.children].forEach((d, i) => d.classList.toggle("nv-pin__dot--on", i < pin.length));
+        const done = (v) => {
+          el.remove();
+          overlay = prev;
+          resolve(v);
+        };
+        async function press(d) {
+          if (d === "del") {
+            pin = pin.slice(0, -1);
+            show();
+            return;
+          }
+          if (pin.length >= 4) return;
+          pin += d;
+          show();
+          if (pin.length < 4) return;
+          const ok = verify ? await verify(pin) : true;
+          if (ok) return done(verify ? true : pin);
+          msg.textContent = "Wrong PIN";
+          dots.classList.add("nv-pin__dots--shake");
+          setTimeout(() => {
+            dots.classList.remove("nv-pin__dots--shake");
+            pin = "";
+            show();
+          }, 450);
+        }
+        const keys = [1, 2, 3, 4, 5, 6, 7, 8, 9, "del", 0].map((d) => h("button", { class: "nv-key", "aria-label": d === "del" ? "Delete" : String(d), onclick: () => press(d === "del" ? "del" : String(d)) }, d === "del" ? icon("backspace") : String(d)));
+        const panel = h("div", { class: "nv-panel nv-pin" }, h("h2", { class: "nv-panel__title" }, title), dots, msg, h("div", { class: "nv-pin__pad" }, keys));
+        const el = h("div", { class: "nv-overlay" }, panel);
+        root.append(el);
+        overlay = { el, back: () => done(false), key: (e) => {
+          const d = digitOf(e.keyCode);
+          if (d < 0) return false;
+          press(String(d));
+          return true;
+        } };
+        setTimeout(() => keys[4].focus({ preventScroll: true }), 0);
+      });
+    }
+    function openEditor(p) {
+      const isNew = !p;
+      const id = p ? p.id : String(Date.now());
+      const active = currentProfile();
+      const isActive = !!(p && active && active.id === p.id);
+      let color = p ? p.color : PALETTE[list.length % PALETTE.length];
+      let pinHash = p ? p.pinHash || null : null;
+      let codeMode = isNew ? "fresh" : "keep";
+      let deleteArmed = false;
+      const name = h("input", { class: "jf-input nv-input", type: "text", maxlength: "20", placeholder: "Profile name", value: p ? p.name : "", autocomplete: "off", spellcheck: "false" });
+      const preview = h("div", { class: "nv-avatar nv-avatar--preview", style: { background: color } }, initialOf(name.value || "?"));
+      name.addEventListener("input", () => {
+        preview.textContent = initialOf(name.value || "?");
+      });
+      const swatches = h("div", { class: "nv-swatches" }, PALETTE.map((c) => h("button", {
+        class: `nv-swatch${c === color ? " nv-swatch--on" : ""}`,
+        style: { background: c },
+        "aria-label": `Colour ${c}`,
+        onclick: (ev) => {
+          color = c;
+          preview.style.background = c;
+          swatches.querySelectorAll(".nv-swatch").forEach((s) => s.classList.toggle("nv-swatch--on", s === ev.currentTarget));
+        }
+      })));
+      const code = h("input", { class: "jf-input jf-input--code nv-input", type: "text", maxlength: "11", placeholder: "XXXX-XXXX-X", autocomplete: "off", spellcheck: "false" });
+      code.addEventListener("input", () => {
+        const v = formatCode(code.value);
+        if (v !== code.value) code.value = v;
+      });
+      const codeBox = h("div", { class: "nv-editor__code" });
+      const msg = h("p", { class: "nv-editor__msg", role: "status" });
+      const pinBtn = h("button", { class: "jf-button nv-btn", onclick: async () => {
+        if (pinHash) {
+          pinHash = null;
+          drawPin();
+          return;
+        }
+        const first = await askPin("Choose a 4-digit PIN");
+        if (!first) return;
+        const again = await askPin("Enter the PIN again", async (x) => x === first);
+        if (again) {
+          pinHash = await hashPin(id, first);
+          drawPin();
+        }
+      } });
+      const drawPin = () => {
+        pinBtn.textContent = pinHash ? "Remove PIN" : "Set a PIN";
+      };
+      drawPin();
+      function drawCode() {
+        const choice = (mode, label) => h("button", { class: `jf-button nv-btn${codeMode === mode ? " nv-btn--on" : ""}`, onclick: () => {
+          codeMode = mode;
+          drawCode();
+          if (mode === "existing") code.focus();
+        } }, label);
+        if (isNew) {
+          codeBox.replaceChildren(
+            h("div", { class: "nv-editor__label" }, "Watch history"),
+            h("div", { class: "nv-row" }, choice("fresh", "Start fresh"), choice("existing", "Use existing sync code")),
+            codeMode === "existing" ? code : ""
+          );
+        } else {
+          codeBox.replaceChildren(
+            h("div", { class: "nv-editor__label" }, `Sync code \u2022\u2022\u2022\u2022-\u2022\u2022\u2022\u2022-${formatCode(p.code).slice(-1)}`),
+            isActive ? h("p", { class: "nv-editor__note" }, "This profile is in use. Switch to another profile to change its sync code.") : h("div", { class: "nv-row" }, choice("keep", "Keep"), choice("existing", "Change sync code")),
+            codeMode === "existing" ? code : ""
+          );
+        }
+      }
+      drawCode();
+      const del2 = !isNew && !isActive && h("button", { class: "jf-button nv-btn nv-btn--danger", onclick: () => {
+        if (!deleteArmed) {
+          deleteArmed = true;
+          del2.textContent = "Press again to delete";
+          return;
+        }
+        saveProfiles(removeProfile(loadProfiles(), p.id));
+        closeOverlay();
+      } }, "Delete profile");
+      const save2 = h("button", { class: "jf-button nv-btn nv-btn--primary", onclick: async () => {
+        const nm = name.value.trim();
+        if (!nm) {
+          msg.textContent = "Give the profile a name.";
+          return name.focus();
+        }
+        try {
+          let newCode = null;
+          if (codeMode === "fresh" || codeMode === "existing") {
+            if (!isSignedIn()) throw new Error("Sign in to your VIP account first (Settings) \u2014 lists only sync for a signed-in account.");
+            if (codeMode === "fresh") {
+              msg.textContent = "Creating a new sync code\u2026";
+              newCode = await createCode();
+            } else {
+              newCode = formatCode(code.value);
+              if (!validCode(newCode)) throw new Error("A sync code looks like ABCD-1234-X (9 letters/digits).");
+              msg.textContent = "Checking the sync code\u2026";
+              if (!await codeExists(newCode)) throw new Error("No sync code found with that code \u2014 check it and try again.");
+            }
+          }
+          let all = loadProfiles();
+          if (isNew) all = updateProfile(addProfile(all, { name: nm, color, code: newCode }, id), id, { pinHash });
+          else all = updateProfile(all, id, { name: nm, color, pinHash, ...newCode ? { code: newCode } : {} });
+          saveProfiles(all);
+          closeOverlay(id);
+        } catch (e) {
+          msg.textContent = e.message;
+        }
+      } }, isNew ? "Create profile" : "Save");
+      const panel = h(
+        "div",
+        { class: "nv-panel nv-editor" },
+        h("div", { class: "nv-editor__head" }, h("h2", { class: "nv-panel__title" }, isNew ? "Add Profile" : "Edit Profile")),
+        h(
+          "div",
+          { class: "nv-editor__body" },
+          h("div", { class: "nv-editor__preview" }, preview),
+          h(
+            "div",
+            { class: "nv-editor__fields" },
+            h("label", { class: "nv-editor__label" }, "Name"),
+            name,
+            h("div", { class: "nv-editor__label" }, "Colour"),
+            swatches,
+            codeBox,
+            h("div", { class: "nv-editor__label" }, "PIN"),
+            h("div", { class: "nv-row" }, pinBtn),
+            msg,
+            h("div", { class: "nv-row nv-editor__actions" }, save2, del2 || "")
+          )
+        )
+      );
+      openOverlay(panel, () => closeOverlay(p && p.id));
+      setTimeout(() => name.focus({ preventScroll: true }), 0);
+    }
+    let holdTimer = null;
+    let held = false;
+    keyHook.fn = (e) => {
+      if (!root.isConnected) {
+        keyHook.fn = null;
+        return false;
+      }
+      const k = e.keyCode;
+      if (overlay) {
+        if (BACK.includes(k) && !(k === 8 && e.target.matches && e.target.matches("input"))) {
+          overlay.back();
+          return true;
+        }
+        return overlay.key ? overlay.key(e) : false;
+      }
+      if (BACK.includes(k)) {
+        if (!onDone) history.back();
+        return true;
+      }
+      const card2 = document.activeElement && document.activeElement.closest && document.activeElement.closest(".nv-profile");
+      if (k === 13 && card2) {
+        if (!e.repeat && !holdTimer) {
+          held = false;
+          holdTimer = setTimeout(() => {
+            held = true;
+            holdTimer = null;
+            activate(card2.dataset.id, true);
+          }, HOLD_MS);
+        }
+        return true;
+      }
+      return false;
+    };
+    const onUp = (e) => {
+      if (!root.isConnected) return window.removeEventListener("keyup", onUp, true);
+      if (e.keyCode !== 13 || overlay) return;
+      const card2 = document.activeElement && document.activeElement.closest && document.activeElement.closest(".nv-profile");
+      if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+        if (card2 && !held) activate(card2.dataset.id, false);
+      }
+    };
+    window.addEventListener("keyup", onUp, true);
+    root.addEventListener("click", (e) => {
+      const card2 = e.target.closest(".nv-profile");
+      if (card2 && e.detail > 0 && !overlay) activate(card2.dataset.id, false);
+    });
+    render();
+  }
+
   // src/shell/osd.js
   var HIDE_AFTER = 4e3;
   var jw = () => {
@@ -1417,8 +1895,8 @@ html.fc-playing #fc-loading { display: none; }
   function currentTitle() {
     var _a, _b, _c;
     const show = (((_b = (_a = document.querySelector(".section-watch-overview .watch-header")) == null ? void 0 : _a.childNodes[0]) == null ? void 0 : _b.textContent) || document.title).trim();
-    const key = String(window.key || "");
-    const [, s, e] = key.split(":");
+    const key2 = String(window.key || "");
+    const [, s, e] = key2.split(":");
     if (!s) {
       const y = (/\((\d{4})\)/.exec(document.title) || [])[1];
       return y ? `${show} (${y})` : show;
@@ -1597,6 +2075,11 @@ html.fc-playing #fc-loading { display: none; }
   function route(path) {
     if (path === "/" || path === "/home") {
       if (location.hash === "#settings") return { render: (app2) => settingsView(app2), skeleton: "plain" };
+      if (location.hash === "#profiles" || location.hash === "#profiles-manage") return { id: "profiles", render: (app2) => profilesView(app2, { manage: location.hash === "#profiles-manage" }) };
+      if (!location.hash && !wasChosen()) {
+        if (loadProfiles().length >= 2) return { id: "picker", render: (app2) => profilesView(app2, { onDone: () => redraw() }) };
+        markChosen();
+      }
       return { key: "home", fresh: () => parseHome(document), render: homeView, skeleton: "home" };
     }
     if (/^\/mylists\//.test(path)) return { render: (app2) => favouritesView(app2), skeleton: "grid" };
@@ -1673,16 +2156,35 @@ html.fc-playing #fc-loading { display: none; }
     const r = route(location.pathname);
     if (!r || app) return;
     mount(document.documentElement);
-    const stale = r.key ? cache.get(r.key) : void 0;
-    if (stale !== void 0) {
-      try {
-        r.render(app, stale);
-        drawn = { data: stale, signedIn: localStorage.getItem("fc-tv-signed-in") };
-      } catch (e) {
-        app.replaceChildren(...skeleton(r.skeleton));
-      }
-    } else app.append(...skeleton(r.skeleton));
+    draw(r);
     if (playbackExpected()) showLoading();
+  }
+  function draw(r) {
+    const stale = r.key ? cache.get(r.key) : void 0;
+    app.replaceChildren();
+    try {
+      if (stale !== void 0) {
+        r.render(app, stale);
+        drawn = { id: r.id, data: stale, signedIn: localStorage.getItem("fc-tv-signed-in") };
+        return;
+      }
+      if (r.id) {
+        r.render(app);
+        drawn = { id: r.id };
+        return;
+      }
+    } catch (e) {
+      app.replaceChildren();
+    }
+    drawn = null;
+    app.append(...skeleton(r.skeleton));
+  }
+  function redraw() {
+    const r = route(location.pathname);
+    if (document.readyState === "loading") return draw(r);
+    app.replaceChildren();
+    app.scrollTop = 0;
+    r.render(app, r.key ? r.fresh() : void 0);
   }
   function unmountShell() {
     hideLoading();
@@ -1710,7 +2212,8 @@ html.fc-playing #fc-loading { display: none; }
     const fresh = r.key ? r.fresh() : void 0;
     if (r.key) cache.set(r.key, fresh);
     const signedIn = document.querySelector('a[href="/account"]') ? "1" : "0";
-    if (!(drawn && same(drawn.data, fresh) && drawn.signedIn === signedIn)) {
+    const upToDate = drawn && drawn.id === r.id && (r.key ? same(drawn.data, fresh) && drawn.signedIn === signedIn : true);
+    if (!upToDate) {
       const where = focusPath();
       const top = app.scrollTop;
       app.replaceChildren();
@@ -1836,7 +2339,7 @@ html.fc-playing #fc-loading { display: none; }
       document.dispatchEvent(new Event("fc-settings"));
     }
     const KEYS = { 37: "left", 38: "up", 39: "right", 40: "down" };
-    const BACK = [10009, 27, 8];
+    const BACK2 = [10009, 27, 8];
     const PLAY_PAUSE = [10252, 415, 19];
     const RED2 = 403;
     try {
@@ -1902,6 +2405,12 @@ html.fc-playing #fc-loading { display: none; }
       var _a, _b, _c;
       if (!siteActive && !document.getElementById("fc-app")) return;
       const code = e.keyCode;
+      if (keyHook.fn && keyHook.fn(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+        handled.add(code);
+        return;
+      }
       if (isLoadingPlayback() && (KEYS[code] || code === 13)) {
         e.preventDefault();
         e.stopPropagation();
@@ -1929,7 +2438,7 @@ html.fc-playing #fc-loading { display: none; }
           e.stopPropagation();
           el.click();
         }
-      } else if (BACK.includes(code)) {
+      } else if (BACK2.includes(code)) {
         if (((_b = (_a = e.target).matches) == null ? void 0 : _b.call(_a, "input, textarea")) && code === 8) return;
         e.preventDefault();
         e.stopPropagation();
