@@ -1,0 +1,143 @@
+/* Jellyfin TV-layout look, written from measurements in tv/JELLYFIN_STYLE.md (no jellyfin-web code copied). */
+:root {
+  --jf-bg: #101010;
+  --jf-header: #202020;
+  --jf-accent: #00a4dc;
+  --jf-text: rgba(255, 255, 255, .8);
+  --jf-text-2: rgba(255, 255, 255, .5);
+  --jf-font: "Noto Sans", "SamsungOne", "Samsung Sans", Roboto, "Segoe UI", sans-serif;
+  --jf-pad: 63px;
+}
+
+/* The site's page stays in the DOM (data + player) but is invisible; only our app, OSD and toasts show. */
+html.fc-shell, html.fc-shell body { background: var(--jf-bg) !important; overflow: hidden !important; }
+html.fc-shell body > *:not(#fc-app):not(#fc-osd):not(.fc-toast) { visibility: hidden !important; }
+html.fc-shell body { background-image: none !important; }
+#fc-app { position: fixed; inset: 0; z-index: 9000; overflow-y: auto; overflow-x: hidden; background: var(--jf-bg); color: var(--jf-text); font: 400 20px/27px var(--jf-font); scrollbar-width: none; }
+#fc-app::-webkit-scrollbar { display: none; }
+#fc-app *, #fc-osd * { box-sizing: border-box; }
+#fc-app a { color: inherit; text-decoration: none; }
+#fc-app button, #fc-osd button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+#fc-app :focus, #fc-osd :focus { outline: none !important; }
+
+/* Player on top while something plays. */
+html.fc-playing #fc-app { visibility: hidden; }
+html.fc-shell .player { visibility: hidden !important; }
+html.fc-playing .player:not(.hide) { visibility: visible !important; position: fixed !important; inset: 0; z-index: 10000; margin: 0 !important; padding: 0 !important; border-radius: 0 !important; background: #000; }
+html.fc-playing .player:not(.hide) #player { width: 100vw !important; height: 100vh !important; }
+
+/* Header */
+.jf-header { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; height: 87px; padding: 0 32px; background: var(--jf-header); }
+.jf-header__left, .jf-header__right { flex: 1; display: flex; align-items: center; gap: 8px; }
+.jf-header__right { justify-content: flex-end; gap: 12px; }
+.jf-logo { font-weight: 700; font-size: 26px; color: #fff; letter-spacing: .02em; background: linear-gradient(135deg, #aa5cc3, #00a4dc); -webkit-background-clip: text; background-clip: text; color: transparent; padding-left: 8px; }
+.jf-header__title { font-size: 22px; color: var(--jf-text); margin-left: 16px; }
+.jf-tabs { display: flex; }
+.jf-tab { font-weight: 600; font-size: 20px; line-height: 25px; padding: 30px; color: #999; }
+.jf-tab--active { color: #fff; }
+.jf-tab:focus { color: #fff; background: var(--jf-accent); }
+.jf-clock { font-size: 20px; color: var(--jf-text); margin-left: 12px; }
+.jf-iconbtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 56px; height: 56px; padding: 0 14px !important; border-radius: 4.3px; color: #fff !important; }
+.jf-iconbtn:focus { background: var(--jf-accent) !important; }
+.jf-icon { width: 30px; height: 30px; fill: currentColor; flex: none; }
+
+/* Sections, rows, grids */
+.jf-main { padding-bottom: 60px; }
+.jf-section { margin: 0; }
+.jf-section__title { font: 400 30px/40.5px var(--jf-font); color: var(--jf-text); margin: 0; padding: 15px 0 6px var(--jf-pad); }
+.jf-center { text-align: center; padding-left: 0; }
+.jf-row { display: flex; overflow-x: auto; overflow-y: visible; padding: 12px var(--jf-pad) 36px; scrollbar-width: none; scroll-padding: 0 var(--jf-pad); }
+.jf-row::-webkit-scrollbar { display: none; }
+.jf-grid { display: flex; flex-wrap: wrap; padding: 12px var(--jf-pad) 24px; }
+.jf-empty { padding: 24px var(--jf-pad); color: var(--jf-text-2); }
+
+/* Cards: focus = the box zooms 1.07, no outline (Jellyfin TV). */
+.jf-card { flex: none; display: block; margin: 0 24px 0 0; text-align: center; scroll-margin: 140px 0 60px; } /* keep focused items clear of the sticky header */
+.jf-card__box { transition: transform .2s ease-out; }
+.jf-card:focus { position: relative; z-index: 10; }
+.jf-card:focus .jf-card__box { transform: scale(1.07); }
+.jf-card__img { position: relative; border-radius: 4px; background: #242424 center / cover no-repeat; overflow: hidden; }
+.jf-card--portrait { width: 262px; }
+.jf-card--portrait .jf-card__img { height: 393px; }
+.jf-card--landscape { width: 427px; }
+.jf-card--landscape .jf-card__img { height: 240px; }
+.jf-grid .jf-card { margin-bottom: 36px; }
+.jf-card__fallback { position: absolute; inset: 0; display: grid; place-items: center; padding: 12px; font-size: 28px; font-weight: 600; color: #fff; }
+.jf-card__title { font-size: 20px; padding: 4.8px 10px 1.2px; color: var(--jf-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jf-card__sub { font-size: 17.2px; color: var(--jf-text-2); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jf-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 5.6px; background: rgba(51, 51, 51, .8); }
+.jf-progress__fill { height: 100%; background: var(--jf-accent); }
+.jf-badge { position: absolute; top: 8px; right: 8px; min-width: 34px; height: 34px; padding: 0 6px; border-radius: 17px; background: var(--jf-accent); color: #fff; font-size: 18px; line-height: 34px; text-align: center; }
+.jf-badge--check { display: grid; place-items: center; padding: 0; }
+.jf-badge--check .jf-icon { width: 24px; height: 24px; }
+
+/* Details */
+.jf-details { display: flex; gap: 47px; padding: 0 60px 0 96px; }
+.jf-details__poster { flex: none; width: 480px; height: 720px; margin-top: -3px; border-radius: 4px; background: #242424 center / cover no-repeat; position: sticky; top: 0; }
+.jf-details__body { flex: 1; min-width: 0; padding-top: 0; }
+.jf-details__title { font: 600 36px/48.6px var(--jf-font); color: var(--jf-text); margin: 0; }
+.jf-details__subtitle { font-size: 22px; font-weight: 600; margin-top: 4px; }
+.jf-details__meta { display: flex; align-items: center; gap: 20px; font-size: 20px; margin: 4px 0 14px; }
+.jf-rating { font-size: 18.4px; color: #ddd; background: rgba(170, 170, 190, .2); border-radius: 4.6px; padding: 4px 9px; }
+.jf-star { display: inline-flex; align-items: center; gap: 4px; }
+.jf-star .jf-icon { width: 24px; height: 24px; fill: #f2b01e; }
+.jf-details__buttons { display: flex; gap: 0; margin: 0 0 40px -8px; }
+.jf-detailbtn { width: 71px; height: 65px; padding: 0 !important; }
+.jf-iconbtn--on .jf-icon { fill: #e53935; }
+.jf-details__overview { margin: 60px 0 30px; max-width: 1240px; font-size: 20px; line-height: 27px; }
+.jf-details__info { border-collapse: collapse; margin-bottom: 20px; }
+.jf-details__info th { text-align: left; font-weight: 400; padding: 5px 80px 5px 0; }
+.jf-details__info td { font-weight: 600; padding: 5px 0; }
+.jf-details .jf-section__title, .jf-details .jf-row { padding-left: 0; }
+.jf-episodes { display: grid; gap: 10px; }
+.jf-episode { scroll-margin: 140px 0 60px; display: flex; gap: 30px; align-items: center; text-align: left; padding: 0; border-radius: 4px; }
+.jf-episode:focus { background: rgba(255, 255, 255, .08); }
+.jf-episode:focus .jf-episode__thumb { outline: 4px solid var(--jf-accent); }
+.jf-episode__thumb { position: relative; flex: none; width: 576px; height: 324px; border-radius: 4px; background: #242424 center / cover no-repeat; overflow: hidden; }
+.jf-episode__title { font-size: 30px; color: var(--jf-text); }
+.jf-episode__meta { font-size: 20px; color: rgba(255, 255, 255, .6); margin-top: 6px; }
+
+/* Library toolbar */
+.jf-toolbar { display: flex; justify-content: center; align-items: center; gap: 24px; padding: 60px 0 12px; font-size: 20px; }
+.jf-toolbar__sort span { font-size: 18px; }
+
+/* Search */
+.jf-search__bar { display: flex; align-items: center; gap: 12px; width: 1150px; margin: 80px auto 8px; }
+.jf-search__icon { width: 36px; height: 36px; fill: var(--jf-text); }
+.jf-search__input { flex: 1; height: 52px; font: 400 22px var(--jf-font); color: #fff; background: #1c1c1c; border: 3px solid #333; border-radius: 4px; padding: 0 8px; }
+.jf-search__input:focus { border-color: var(--jf-accent); outline: none; }
+.jf-keys { display: grid; justify-content: center; gap: 2px; margin-bottom: 30px; }
+.jf-keys__row { display: flex; justify-content: center; gap: 4px; }
+.jf-key { min-width: 28px; height: 32px; padding: 0 5px !important; font-size: 20px; color: rgba(255, 255, 255, .6) !important; border-radius: 3px; }
+.jf-key .jf-icon { width: 22px; height: 22px; }
+.jf-key:focus { background: var(--jf-accent) !important; color: #fff !important; }
+.jf-suggestions { display: grid; justify-items: center; gap: 4px; }
+.jf-suggestion { color: var(--jf-accent) !important; font-weight: 600; font-size: 20px; padding: 10px 12px; border-radius: 4px; }
+.jf-suggestion:focus { background: var(--jf-accent); color: #fff !important; }
+
+/* Player OSD */
+#fc-osd { position: fixed; inset: 0; z-index: 10001; pointer-events: none; color: #fff; font: 400 20px var(--jf-font); opacity: 0; transition: opacity .2s; }
+#fc-osd.jf-osd--on { opacity: 1; }
+#fc-osd:not(.jf-osd--on) * { visibility: hidden; }
+.jf-osd__top { position: absolute; top: 0; left: 0; right: 0; height: 150px; display: flex; align-items: flex-start; gap: 16px; padding: 22px 32px; background: linear-gradient(rgba(15, 15, 15, .75), rgba(15, 15, 15, 0)); pointer-events: auto; }
+.jf-osd__title { font-size: 23.4px; line-height: 56px; }
+.jf-osd__top .jf-clock { line-height: 56px; }
+.jf-osd__spacer { flex: 1; }
+.jf-osd__bottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 60px 16px 24px; background: linear-gradient(rgba(10, 10, 10, 0), rgba(10, 10, 10, .85)); pointer-events: auto; }
+.jf-osd__timeline { display: flex; align-items: center; gap: 12px; padding: 0 10px; }
+.jf-osd__time { font-size: 20px; min-width: 60px; }
+.jf-slider { flex: 1; height: 38px; display: flex; align-items: center; padding: 0 10px !important; border-radius: 19px; }
+.jf-slider__track { position: relative; flex: 1; height: 4px; background: rgba(255, 255, 255, .25); }
+.jf-slider__fill { height: 100%; background: var(--jf-accent); }
+.jf-slider__thumb { position: absolute; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: var(--jf-accent); }
+.jf-slider:focus .jf-slider__thumb { transform: scale(1.4); box-shadow: 0 0 0 4px rgba(0, 164, 220, .35); }
+.jf-osd__buttons { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.jf-osd__ends { margin-left: 50px; }
+
+/* Up Next card + "Are you still watching?" (content/player.js shadow parts) in the Jellyfin look. */
+html.fc-shell #player > div::part(box) { background: rgba(16, 16, 16, .95); border-radius: 4px; font-family: var(--jf-font); box-shadow: none; }
+html.fc-shell #player > div::part(play) { background: var(--jf-accent); color: #fff; border-radius: 4.3px; }
+html.fc-shell #player > div::part(cancel) { background: rgba(255, 255, 255, .12); border-radius: 4.3px; }
+html.fc-shell #player > div::part(title) { font-weight: 600; }
+
+.fc-toast { position: fixed; left: 50%; bottom: 3rem; transform: translateX(-50%); z-index: 2147483647; background: rgba(20, 20, 20, .92); color: #fff; padding: .75rem 1.5rem; border-radius: 8px; font: 600 1.1rem system-ui, sans-serif; }

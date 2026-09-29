@@ -20,8 +20,13 @@ export function pickNext(from, candidates, dir) {
     const b = center(c.rect);
     const along = (b[axis] - a[axis]) * sign;
     if (along <= 1) continue; // not in that direction
-    const across = Math.abs(b[other] - a[other]);
-    const score = along + across * 2; // prefer staying in the same row/column
+    // Sideways distance = gap between the two rects' edges (0 if they overlap), so a wide control like the
+    // OSD timeline is reachable from any button under it; centre distance only breaks ties.
+    const lo = other === 'x' ? 'left' : 'top';
+    const size = other === 'x' ? 'width' : 'height';
+    const gap = Math.max(0, c.rect[lo] - (from[lo] + from[size]), from[lo] - (c.rect[lo] + c.rect[size]));
+    const across = gap * 2 + Math.abs(b[other] - a[other]) * 0.1;
+    const score = along + across; // prefer staying in the same row/column
     if (score < bestScore) { bestScore = score; best = c; }
   }
   return best;

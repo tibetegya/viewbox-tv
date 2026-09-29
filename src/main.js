@@ -1,16 +1,19 @@
-// Viewbox TV — TizenBrew site-modification module: 10-foot UI, D-pad navigation, new-episode row, and the
-// extension's next-episode card + "Are you still watching?" (content/player.js, reused as-is).
+// Viewbox TV — TizenBrew site-modification module: a Jellyfin-style TV shell over the site (src/shell/), D-pad
+// navigation, and the extension's next-episode card + "Are you still watching?" (content/player.js, reused as-is).
 // TizenBrew injects this into every page of its window: the launcher page (pick the site) and the site itself.
 import css from './tv.css';
-import { move, activeEl, focusEl, candidates } from './nav.js';
-import { scan, counts, load, markSeen } from './episodes.js';
+import { move, activeEl } from './nav.js';
+import { scan, markSeen } from './episodes.js';
 import { isLauncher, runLauncher } from './launcher.js';
+import { startShell } from './shell/shell.js';
+import { holdMovieAutostart } from './shell/autostart.js';
 
 /* global PLAYER_SRC, tizen, jwplayer */
 (() => {
   window.__fcTvInjected = Date.now(); // read by the launcher page's diagnostics (docs/index.html)
   if (window.__fcTv) return; // TizenBrew evaluates the module in every new execution context
   window.__fcTv = true;
+  holdMovieAutostart(); // must run before the site's scripts: movie pages autoplay otherwise
 
   const DEFAULTS = { autoplayEnabled: true, creditsOffset: 20, countdownSecs: 10, autoplayOff: [], stillWatching: true, swEpisodes: 3, swMinutes: 90 };
   const SETTINGS_KEY = 'fc-tv-settings';
@@ -34,6 +37,7 @@ import { isLauncher, runLauncher } from './launcher.js';
   // Only pages with the markup this module was built for get the TV features; anything else is left alone.
   const looksLikeSite = () => !!document.querySelector('a[href="/mylists/favorites"]') && !!document.querySelector('meta[name="csrf-token"]');
   let siteActive = false;
+  let shell = null;
 
   onReady(() => {
     if (isLauncher()) {
@@ -52,9 +56,10 @@ import { isLauncher, runLauncher } from './launcher.js';
     document.head.appendChild(document.createElement('style')).textContent = css;
     pushSettings();
     const pid = location.pathname.match(/^\/watch\/tv\/(\d+)/)?.[1];
-    if (pid) { markSeen(pid); loadPlayer(); }
-    refresh();
-    scan(false).then(refresh);
+    if (pid) markSeen(pid);
+    if (/^\/watch\/tv\//.test(location.pathname)) loadPlayer();
+    shell = startShell();
+    scan(false).then(() => document.dispatchEvent(new Event('fc-scanned')));
     setTimeout(() => activeEl() || move('down'), 800);
   });
 
@@ -70,8 +75,9 @@ import { isLauncher, runLauncher } from './launcher.js';
     }, 250);
   }
 
-  const playerOpen = () => !!document.querySelector('.player:not(.hide) video');
-  const inOverlay = () => !!activeEl()?.getRootNode?.().host;
+  const playerOpen = () => (shell ? shell.playing() : !!document.querySelector('.player:not(.hide) video'));
+  const overlayRoot = () => { const r = activeEl()?.getRootNode?.(); return r && r.host ? r : null; };
+  const inOverlay = () => !!overlayRoot();
 
   // The site acts on keyup too (←/→ seek ±5 s on the watch page), so a key we handle must not reach it on keyup either.
   const handled = new Set();
@@ -82,19 +88,29 @@ import { isLauncher, runLauncher } from './launcher.js';
   window.addEventListener('keydown', (e) => {
     if (!siteActive) return;
     const code = e.keyCode;
+    // While playing: the Jellyfin-style OSD owns the keys (first press shows it); without the shell, the site's keys.
+    if (playerOpen() && !inOverlay() && (KEYS[code] || code === 13)) {
+      if (!shell) return; // site: ←/→ seek, ↑/↓ volume
+      if (shell.osd.handleKey(e)) { e.preventDefault(); e.stopPropagation(); handled.add(code); return; }
+    }
     if (KEYS[code]) {
-      if (playerOpen() && !inOverlay()) return; // site: ←/→ seek, ↑/↓ volume
       if (move(KEYS[code])) e.preventDefault();
       e.stopPropagation();
       handled.add(code);
     } else if (code === 13) {
       const el = activeEl();
-      if (el && !el.matches('a[href], button, input, select, textarea')) { e.preventDefault(); e.stopPropagation(); el.click(); }
+      if (!el || el.matches('input, select, textarea')) return;
+      // Our own controls are activated here: the site's document handler treats Enter as play/pause and cancels it.
+      // (Up Next / still-watching overlays live in shadow roots and handle Enter themselves.)
+      if (el.closest('#fc-app, #fc-osd') || !el.matches('a[href], button')) { e.preventDefault(); e.stopPropagation(); el.click(); }
     } else if (BACK.includes(code)) {
       if (e.target.matches?.('input, textarea') && code === 8) return;
-      if (inOverlay()) return; // player.js: Esc = "Not now"
       e.preventDefault();
-      if (playerOpen()) closePlayer(); else history.back();
+      e.stopPropagation();
+      if (inOverlay()) { overlayRoot().querySelector('.cancel')?.click(); return; } // Up Next card: "Not now" / "Close"
+      if (shell && shell.osd.visible()) shell.osd.hide();
+      else if (playerOpen()) closePlayer();
+      else history.back();
     } else if (PLAY_PAUSE.includes(code)) {
       e.preventDefault();
       try { const p = jwplayer('player'); p.getState() === 'playing' ? p.pause() : p.play(); } catch {}
@@ -114,10 +130,11 @@ import { isLauncher, runLauncher } from './launcher.js';
   function closePlayer() {
     try { jwplayer('player').pause(); } catch {}
     document.querySelector('.player')?.classList.add('hide');
-    history.replaceState(null, '', location.pathname.split('/').slice(0, 5).join('/'));
-    const row = document.querySelector('tr.eplist.active, tr.eplist');
-    if (row) focusEl(row);
+    history.replaceState(null, '', location.pathname.split('/').slice(0, 5).join('/') + location.hash);
+    shell?.stop();
+    setTimeout(() => ['.jf-detailbtn--play', '.jf-main .jf-card', '.jf-main button'].map((s) => document.querySelector(`#fc-app ${s}`)).find(Boolean)?.focus({ preventScroll: true }), 0);
   }
+  document.addEventListener('fc-close-player', closePlayer);
 
   function toast(text) {
     const t = document.body.appendChild(document.createElement('div'));
@@ -127,42 +144,4 @@ import { isLauncher, runLauncher } from './launcher.js';
     setTimeout(() => t.remove(), 2000);
   }
 
-  // "N new" badges on favorite cards + a "New episodes" row on the home page.
-  function refresh() {
-    const c = counts();
-    for (const card of document.querySelectorAll('.cflip[data-href^="/watch/tv/"]')) {
-      const n = c[card.dataset.href.split('/')[3]] || 0;
-      const want = n ? `${n} new` : '';
-      const badge = card.querySelector('.fc-new');
-      if ((badge?.textContent ?? '') === want) continue;
-      badge?.remove();
-      if (want) Object.assign(card.querySelector('.card-badge.top')?.appendChild(document.createElement('span')) ?? {}, { className: 'badge badge-danger fc-new', textContent: want });
-    }
-    if (location.pathname === '/home') renderNewRow(c);
-  }
-
-  function renderNewRow(c) {
-    const shows = load();
-    const withNew = Object.entries(c).filter(([, n]) => n).map(([pid, n]) => ({ pid, n, ...shows[pid] })).filter((s) => s.title);
-    document.getElementById('fc-new-row')?.remove();
-    if (!withNew.length) return;
-    const row = document.createElement('section');
-    row.id = 'fc-new-row';
-    row.setAttribute('aria-label', 'New episodes');
-    row.innerHTML = '<h2>New episodes</h2><div class="fc-row"></div>';
-    for (const s of withNew.sort((a, b) => b.n - a.n)) {
-      const a = row.querySelector('.fc-row').appendChild(document.createElement('a'));
-      a.className = 'fc-card';
-      a.href = `/watch/tv/${s.pid}/${s.slug}`;
-      a.setAttribute('aria-label', `${s.title}, ${s.n} new episode${s.n > 1 ? 's' : ''}`);
-      const img = a.appendChild(document.createElement('img'));
-      img.src = `https://img.xcdn.to/t/p/w342/${s.poster}`;
-      img.alt = '';
-      a.appendChild(Object.assign(document.createElement('span'), { className: 'fc-count', textContent: `${s.n} new` }));
-      a.appendChild(Object.assign(document.createElement('span'), { className: 'fc-title', textContent: s.title }));
-    }
-    const host = document.getElementById('content') ?? document.body;
-    host.insertBefore(row, host.firstChild);
-    if (!candidates().some((x) => x.el === activeEl())) focusEl(row.querySelector('a'));
-  }
 })();

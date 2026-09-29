@@ -1,15 +1,20 @@
 # Viewbox TV (TizenBrew module)
 
-A TV front end for a streaming site on a Samsung Tizen TV: remote (D-pad) navigation, a full-screen player, a "New episodes" row on the home page, "N new" badges, the next-episode countdown card, and "Are you still watching?".
+A TV front end for a streaming site on a Samsung Tizen TV that looks and works like **Jellyfin's TV layout** (measurements in `JELLYFIN_STYLE.md`):
+- **Home** — My Media tiles (Shows, Movies, Favourites), Continue Watching (from your watch history, 5–90 % watched), Next Up, New Episodes, then the site's latest / popular rows.
+- **Favourites**, **Shows / Movies libraries** (poster grid, sort, endless scroll) and **Search** (on-screen letters, results by Shows / Movies).
+- **Details** — poster, meta line, Play / Resume, Favourite, overview, genres; for series a Next Up card and season posters opening a season episode list.
+- **Player** — Jellyfin-style on-screen controls (timeline, ⏪ ⏯ ⏩ ⏭, subtitles, quality, mute), the next-episode countdown card and "Are you still watching?".
+Movie pages no longer start playing on their own; Play does.
 
 It is a [TizenBrew](https://github.com/reisxd/TizenBrew) *site modification* module. TizenBrew opens the module's launcher page, where you enter the site address once; the module is then injected into every page of that site. The site itself still handles login, lists and playback. The site must use the same page markup this module was built for (see PRD Appendix A in the parent repo) — on any other site the module stays inactive.
 
 ## Remote
 | Key | Action |
 |---|---|
-| Arrows | Move focus (inside the countdown card / prompt while it's open). With the player open: ←/→ seek, ↑/↓ volume (the site's own keys) |
+| Arrows | Move focus. While playing: the first press shows the controls; on the timeline ←/→ seek ±10 s |
 | Enter | Open / play the focused item |
-| Return (Back) | Close the player, otherwise go back |
+| Return (Back) | Hide the controls → leave playback → previous screen. On the countdown card: "Not now" |
 | Play/Pause, ⏩ / ⏪ | Play/pause, ±10 s |
 | Red | Autoplay on/off. On the start screen: change the site address |
 
