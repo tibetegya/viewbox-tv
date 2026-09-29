@@ -22,7 +22,7 @@ Target: `chrome69`, for Tizen 5.5 (2020 TVs such as the TU8000).
 
 ## Publish (TizenBrew only loads public modules, via jsDelivr)
 Published at **github.com/tibetegya/viewbox-tv** (contents of this folder at the repo root).
-- **GitHub Pages** serves `docs/` (the launcher page) at `https://tibetegya.github.io/viewbox-tv/`, the `websiteURL` in `package.json`.
+- **GitHub Pages** serves `docs/` (the launcher page) at `https://tibetegya.dev/viewbox-tv/` (the account's custom Pages domain), the `websiteURL` in `package.json`.
 - Releases are tagged (`v0.2.0`, …); jsDelivr serves the module files from the repo.
 
 ## Install on the TV (one-time)
