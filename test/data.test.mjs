@@ -26,3 +26,12 @@ test('backdropFromHtml finds the page background image', () => {
   assert.equal(backdropFromHtml('<style>body {background-image: linear-gradient(x), url("https://img.xcdn.to/t/p/w1280/x4lxFIhhrDI4nWtV8osnYwbGESV.jpg");'), 'x4lxFIhhrDI4nWtV8osnYwbGESV.jpg');
   assert.equal(backdropFromHtml('<html></html>'), null);
 });
+
+import { formatCode, validCode } from '../src/shell/settings.js';
+test('sync code formatting and validation', () => {
+  assert.equal(formatCode('abcd1234x'), 'ABCD-1234-X');
+  assert.equal(formatCode('ABCD-1234-X'), 'ABCD-1234-X');
+  assert.equal(formatCode(' ab cd'), 'ABCD');
+  assert.ok(validCode('ABCD-1234-X'));
+  assert.ok(!validCode('ABCD-1234'));
+});

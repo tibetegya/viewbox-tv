@@ -13,21 +13,26 @@
   function pickNext(from, candidates2, dir) {
     const { axis, sign } = DIRS[dir];
     const other = axis === "x" ? "y" : "x";
+    const lo = other === "x" ? "left" : "top";
+    const size = other === "x" ? "width" : "height";
     const a = center(from);
-    let best = null;
-    let bestScore = Infinity;
+    const scored = [];
     for (const c of candidates2) {
       const b = center(c.rect);
       const along = (b[axis] - a[axis]) * sign;
       if (along <= 1) continue;
-      const lo = other === "x" ? "left" : "top";
-      const size = other === "x" ? "width" : "height";
       const gap = Math.max(0, c.rect[lo] - (from[lo] + from[size]), from[lo] - (c.rect[lo] + c.rect[size]));
-      const across = gap * 2 + Math.abs(b[other] - a[other]) * 0.1;
-      const score = along + across;
+      scored.push({ c, along, gap, off: Math.abs(b[other] - a[other]) });
+    }
+    const inLine = scored.filter((s) => s.gap === 0);
+    const pool = inLine.length ? inLine : scored;
+    let best = null;
+    let bestScore = Infinity;
+    for (const s of pool) {
+      const score = s.along + s.gap * 2 + s.off * 0.1;
       if (score < bestScore) {
         bestScore = score;
-        best = c;
+        best = s.c;
       }
     }
     return best;
@@ -251,6 +256,7 @@
   --jf-bg: #101010;
   --jf-header: #202020;
   --jf-accent: #00a4dc;
+  --jf-focus: #7fdcd4; /* light teal ring on the focused card (user request; not in Jellyfin) */
   --jf-text: rgba(255, 255, 255, .8);
   --jf-text-2: rgba(255, 255, 255, .5);
   --jf-font: "Noto Sans", "SamsungOne", "Samsung Sans", Roboto, "Segoe UI", sans-serif;
@@ -304,6 +310,7 @@ html.fc-playing .player:not(.hide) #player { width: 100vw !important; height: 10
 .jf-card__box { transition: transform .2s ease-out; }
 .jf-card:focus { position: relative; z-index: 10; }
 .jf-card:focus .jf-card__box { transform: scale(1.07); }
+.jf-card:focus .jf-card__img { box-shadow: 0 0 0 4px var(--jf-focus); }
 .jf-card__img { position: relative; border-radius: 4px; background: #242424 center / cover no-repeat; overflow: hidden; }
 .jf-card--portrait { width: 262px; }
 .jf-card--portrait .jf-card__img { height: 393px; }
@@ -340,7 +347,7 @@ html.fc-playing .player:not(.hide) #player { width: 100vw !important; height: 10
 .jf-episodes { display: grid; gap: 10px; }
 .jf-episode { scroll-margin: 140px 0 60px; display: flex; gap: 30px; align-items: center; text-align: left; padding: 0; border-radius: 4px; }
 .jf-episode:focus { background: rgba(255, 255, 255, .08); }
-.jf-episode:focus .jf-episode__thumb { outline: 4px solid var(--jf-accent); }
+.jf-episode:focus .jf-episode__thumb { box-shadow: 0 0 0 4px var(--jf-focus); }
 .jf-episode__thumb { position: relative; flex: none; width: 576px; height: 324px; border-radius: 4px; background: #242424 center / cover no-repeat; overflow: hidden; }
 .jf-episode__title { font-size: 30px; color: var(--jf-text); }
 .jf-episode__meta { font-size: 20px; color: rgba(255, 255, 255, .6); margin-top: 6px; }
@@ -389,6 +396,31 @@ html.fc-shell #player > div::part(cancel) { background: rgba(255, 255, 255, .12)
 html.fc-shell #player > div::part(title) { font-weight: 600; }
 
 .fc-toast { position: fixed; left: 50%; bottom: 3rem; transform: translateX(-50%); z-index: 2147483647; background: rgba(20, 20, 20, .92); color: #fff; padding: .75rem 1.5rem; border-radius: 8px; font: 600 1.1rem system-ui, sans-serif; }
+
+/* Header sign-in link (shown when signed out) */
+.jf-signin { font-weight: 600; font-size: 20px; color: #fff !important; background: var(--jf-accent); border-radius: 4.3px; padding: 8px 18px; margin-right: 8px; }
+.jf-signin:focus { box-shadow: 0 0 0 4px var(--jf-focus); }
+
+/* Settings */
+.jf-settings { max-width: 1100px; margin: 0 auto; padding-top: 30px; }
+.jf-settings__section { padding: 10px 0 30px; border-bottom: 1px solid rgba(255, 255, 255, .08); }
+.jf-settings .jf-section__title { padding-left: 0; }
+.jf-settings__status { margin: 6px 0 16px; }
+.jf-settings__form { display: grid; gap: 14px; max-width: 640px; }
+.jf-settings__msg { min-height: 27px; margin: 0; color: var(--jf-accent); }
+.jf-settings__about { color: var(--jf-text-2); font-size: 17px; margin: 4px 0; word-break: break-all; }
+.jf-field { display: grid; gap: 6px; }
+.jf-field__label { font-size: 18px; color: var(--jf-text-2); }
+.jf-input { height: 56px; font: 400 22px var(--jf-font); color: #fff; background: #1c1c1c; border: 3px solid #333; border-radius: 4px; padding: 0 12px; }
+.jf-input:focus { border-color: var(--jf-accent); outline: none; }
+.jf-input--code { letter-spacing: .12em; text-transform: uppercase; max-width: 320px; }
+.jf-button { justify-self: start; min-width: 160px; height: 56px; padding: 0 28px !important; border-radius: 4.3px; background: rgba(255, 255, 255, .12) !important; color: #fff !important; font-weight: 600 !important; display: inline-flex; align-items: center; justify-content: center; }
+.jf-button:focus { background: var(--jf-accent) !important; }
+.jf-button--inline { margin-left: 12px; height: 48px; }
+.jf-toggle { display: inline-flex; align-items: center; gap: 16px; padding: 10px 12px !important; border-radius: 4.3px; font-size: 20px; }
+.jf-toggle::before { content: ''; width: 52px; height: 28px; border-radius: 14px; background: #444; box-shadow: inset 0 0 0 2px #555; transition: background .15s; }
+.jf-toggle--on::before { background: var(--jf-accent); }
+.jf-toggle:focus { background: rgba(255, 255, 255, .1) !important; box-shadow: 0 0 0 3px var(--jf-focus); }
 `;
 
   // src/shell/data.js
@@ -583,6 +615,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     sort: "M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z",
     tv: "M21 3H3a2 2 0 00-2 2v12a2 2 0 002 2h5v2h8v-2h5a2 2 0 001.99-2L23 5a2 2 0 00-2-2zm0 14H3V5h18v12z",
     movie: "M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4a2 2 0 00-1.99 2L2 18a2 2 0 002 2h16a2 2 0 002-2V4h-4z",
+    person: "M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z",
     star: "M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"
   };
   function icon(name, cls = "") {
@@ -645,13 +678,178 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       title && h("span", { class: "jf-header__title" }, title)
     );
     const mid = h("nav", { class: "jf-tabs" }, (tabs || []).map((t) => h("a", { class: `jf-tab${t.id === active ? " jf-tab--active" : ""}`, href: t.href }, t.label)));
-    const right = h("div", { class: "jf-header__right" }, h("a", { class: "jf-iconbtn", href: "/search/", "aria-label": "Search" }, icon("search")), clock());
+    const signedIn = isSignedIn();
+    const right = h(
+      "div",
+      { class: "jf-header__right" },
+      !signedIn && h("a", { class: "jf-signin", href: "/home#settings" }, "Sign in"),
+      h("a", { class: "jf-iconbtn", href: "/search/", "aria-label": "Search" }, icon("search")),
+      h("a", { class: "jf-iconbtn", href: "/home#settings", "aria-label": "Settings" }, icon("person")),
+      clock()
+    );
     return h("header", { class: "jf-header" }, left, mid, right);
   }
+  var isSignedIn = () => !!document.querySelector('a[href="/account"]');
   var toast = (text) => {
     const t = document.body.appendChild(h("div", { class: "fc-toast", role: "status" }, text));
     setTimeout(() => t.remove(), 2e3);
   };
+
+  // src/shell/settings.js
+  var SYNC_KEY = "hqs.code";
+  var PENDING_SYNC = "fc-pending-sync";
+  var SETTINGS_KEY = "fc-tv-settings";
+  var formatCode = (raw) => {
+    const c = String(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 9);
+    return c.length > 8 ? `${c.slice(0, 4)}-${c.slice(4, 8)}-${c.slice(8)}` : c.length > 4 ? `${c.slice(0, 4)}-${c.slice(4)}` : c;
+  };
+  var validCode = (code) => /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]$/.test(code);
+  var activeCode = () => {
+    try {
+      return localStorage.getItem(SYNC_KEY);
+    } catch (e) {
+      return null;
+    }
+  };
+  async function signIn(email, password) {
+    var _a;
+    const r = await fetch("/ajax/viplogin", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-CSRF-Token": ((_a = document.querySelector('meta[name="csrf-token"]')) == null ? void 0 : _a.content) || ""
+      },
+      body: JSON.stringify({ uname: email, passw: password })
+    });
+    const body = await r.text();
+    if (r.status === 401) throw new Error(body.slice(0, 120) || "Wrong email or password.");
+    if (!r.ok) throw new Error(`Sign-in failed (HTTP ${r.status}).`);
+    if (/"status"\s*:\s*"expired"/.test(body)) throw new Error("Your VIP membership has expired.");
+  }
+  var field = (label, input) => h("label", { class: "jf-field" }, h("span", { class: "jf-field__label" }, label), input);
+  function settingsView(app) {
+    const main = h("main", { class: "jf-main jf-settings" });
+    app.append(header({ title: "Settings" }), main);
+    const signedIn = isSignedIn();
+    const email = h("input", { class: "jf-input", type: "email", autocomplete: "username", placeholder: "VIP email" });
+    const password = h("input", { class: "jf-input", type: "password", autocomplete: "current-password", placeholder: "Password" });
+    const accountMsg = h("p", { class: "jf-settings__msg", role: "status" });
+    const signInBtn = h("button", { class: "jf-button", onclick: async () => {
+      if (!email.value.trim() || !password.value) {
+        accountMsg.textContent = "Enter your VIP email and password.";
+        return;
+      }
+      accountMsg.textContent = "Signing in\u2026";
+      try {
+        await signIn(email.value.trim(), password.value);
+        accountMsg.textContent = "Signed in.";
+        setTimeout(() => location.reload(), 600);
+      } catch (e) {
+        accountMsg.textContent = e.message;
+      }
+    } }, "Sign in");
+    const account = h(
+      "section",
+      { class: "jf-settings__section" },
+      h("h2", { class: "jf-section__title" }, "Account"),
+      signedIn ? h("p", { class: "jf-settings__status" }, "\u2713 Signed in to your VIP account.") : h("div", { class: "jf-settings__form" }, h("p", { class: "jf-settings__status" }, "Not signed in. Your lists need a VIP sign-in."), field("Email", email), field("Password", password), signInBtn, accountMsg)
+    );
+    const current = activeCode();
+    const codeInput = h("input", { class: "jf-input jf-input--code", type: "text", autocomplete: "off", spellcheck: "false", placeholder: "XXXX-XXXX-X", maxlength: "11" });
+    codeInput.addEventListener("input", () => {
+      const v = formatCode(codeInput.value);
+      if (v !== codeInput.value) codeInput.value = v;
+    });
+    const syncMsg = h("p", { class: "jf-settings__msg", role: "status" });
+    const applyBtn = h("button", { class: "jf-button", onclick: () => {
+      const code = formatCode(codeInput.value);
+      if (!validCode(code)) {
+        syncMsg.textContent = "A sync code looks like ABCD-1234-X (9 letters/digits).";
+        return;
+      }
+      if (!isSignedIn()) {
+        syncMsg.textContent = "Sign in first \u2014 the site only loads lists for a signed-in VIP account.";
+        return;
+      }
+      try {
+        localStorage.setItem(PENDING_SYNC, code);
+      } catch (e) {
+      }
+      syncMsg.textContent = "Applying\u2026";
+      location.assign("/mylists/favorites");
+    } }, "Apply");
+    const sync = h(
+      "section",
+      { class: "jf-settings__section" },
+      h("h2", { class: "jf-section__title" }, "Your lists (Sync Code)"),
+      h("p", { class: "jf-settings__status" }, current ? `Active sync code: ${formatCode(current)}` : "No sync code on this TV yet \u2014 your Favourites stay empty until you add one."),
+      h("div", { class: "jf-settings__form" }, field(current ? "Change sync code" : "Sync code", codeInput), applyBtn, syncMsg)
+    );
+    const prefs = (() => {
+      try {
+        return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+      } catch (e) {
+        return {};
+      }
+    })();
+    const autoplayOn = prefs.autoplayEnabled !== false;
+    const autoplayBtn = h("button", { class: `jf-toggle${autoplayOn ? " jf-toggle--on" : ""}`, role: "switch", "aria-checked": String(autoplayOn), onclick: () => {
+      const p = (() => {
+        try {
+          return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+        } catch (e) {
+          return {};
+        }
+      })();
+      p.autoplayEnabled = p.autoplayEnabled === false;
+      try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(p));
+      } catch (e) {
+      }
+      autoplayBtn.classList.toggle("jf-toggle--on", p.autoplayEnabled);
+      autoplayBtn.setAttribute("aria-checked", String(p.autoplayEnabled));
+      toast(`Autoplay ${p.autoplayEnabled ? "on" : "off"}`);
+    } }, "Play the next episode automatically");
+    const playback = h("section", { class: "jf-settings__section" }, h("h2", { class: "jf-section__title" }, "Playback"), autoplayBtn);
+    const about = h(
+      "section",
+      { class: "jf-settings__section" },
+      h("h2", { class: "jf-section__title" }, "About"),
+      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.3.1" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
+      h("p", { class: "jf-settings__about" }, navigator.userAgent)
+    );
+    main.append(account, sync, playback, about);
+    setTimeout(() => (signedIn ? codeInput : email).focus({ preventScroll: true }), 0);
+  }
+  function applyPendingSync() {
+    let code = null;
+    try {
+      code = localStorage.getItem(PENDING_SYNC);
+    } catch (e) {
+    }
+    const input = document.querySelector("#syncCodeInput");
+    if (!code || !input) return null;
+    try {
+      localStorage.removeItem(PENDING_SYNC);
+    } catch (e) {
+    }
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        input.value = code;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        let tries = 0;
+        const t = setInterval(() => {
+          const now = activeCode();
+          const ok = now && formatCode(now) === code;
+          if (ok || ++tries > 30) {
+            clearInterval(t);
+            resolve(!!ok);
+          }
+        }, 500);
+      }, 500);
+    });
+  }
 
   // src/shell/meta.js
   var TTL = 24 * 36e5;
@@ -768,30 +966,53 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
   function favouritesView(app) {
     const main = h("main", { class: "jf-main" });
     app.append(header({ tabs: HOME_TABS, active: "favourites" }), main);
-    const items = [...favoritePids2("t").map((pid) => ({ pid, type: "tv" })), ...favoritePids2("m").map((pid) => ({ pid, type: "movie" }))];
+    const settingsLink = (text) => h("p", { class: "jf-empty" }, text, " ", h("a", { class: "jf-button jf-button--inline", href: "/home#settings" }, "Open Settings"));
+    let loading = true;
+    let note = null;
+    const itemsNow = () => [...favoritePids2("t").map((pid) => ({ pid, type: "tv" })), ...favoritePids2("m").map((pid) => ({ pid, type: "movie" }))];
     const draw = () => {
+      const items = itemsNow();
       const meta = metaCache.all();
-      const scanned2 = load();
+      const scanned = load();
       const cardFor = (it) => {
-        const m = meta[it.pid] || scanned2[it.pid];
+        const m = meta[it.pid] || scanned[it.pid];
         return m && m.title ? card({ href: hrefOf(it.type, it.pid, m), image: m.poster, title: m.title, sub: m.year }) : null;
       };
       const shows = items.filter((i) => i.type === "tv").map(cardFor).filter(Boolean);
       const movies = items.filter((i) => i.type === "movie").map(cardFor).filter(Boolean);
+      let empty = "";
+      if (!shows.length && !movies.length) {
+        if (!isSignedIn()) empty = settingsLink("Sign in to your VIP account to see your favourites.");
+        else if (!items.length && !localStorage.getItem("hqs.code")) empty = settingsLink("No favourites yet \u2014 add your list's Sync Code in Settings to load them.");
+        else if (!items.length) empty = h("p", { class: "jf-empty" }, "No favourites in this list yet.");
+        else empty = h("p", { class: "jf-empty" }, loading ? "Loading favourites\u2026" : "Couldn't load your favourites. Try again later.");
+      }
       const had = main.contains(document.activeElement);
-      main.replaceChildren(
-        shows.length ? section("Shows", shows, "jf-grid") : "",
-        movies.length ? section("Movies", movies, "jf-grid") : "",
-        !shows.length && !movies.length ? h("p", { class: "jf-empty" }, "Loading favourites\u2026") : ""
-      );
+      main.replaceChildren(note || "", shows.length ? section("Shows", shows, "jf-grid") : "", movies.length ? section("Movies", movies, "jf-grid") : "", empty);
       if (!had) focusFirst(main);
     };
+    const load2 = () => {
+      loading = true;
+      const scanned = load();
+      ensureMeta(itemsNow().filter((i) => {
+        var _a;
+        return !((_a = scanned[i.pid]) == null ? void 0 : _a.title);
+      }), 60, draw).then(() => {
+        loading = false;
+        draw();
+      });
+    };
     draw();
-    const scanned = load();
-    ensureMeta(items.filter((i) => {
-      var _a;
-      return !((_a = scanned[i.pid]) == null ? void 0 : _a.title);
-    }), 60, draw).then(draw);
+    const pending = applyPendingSync();
+    if (pending) {
+      note = h("p", { class: "jf-empty", role: "status" }, "Applying your sync code\u2026");
+      draw();
+      pending.then((ok) => {
+        note = h("p", { class: "jf-empty", role: "status" }, ok ? "Sync code applied." : "That sync code wasn't accepted \u2014 check it in Settings.");
+        toast(ok ? "Sync code applied" : "Sync code not accepted");
+        setTimeout(load2, 1500);
+      });
+    } else load2();
   }
   var SORTS = [["latest", "Latest"], ["best", "Best Rated"], ["name", "Name"]];
   function libraryView(app, kind) {
@@ -945,18 +1166,12 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       return allEps[0];
     }
     function playEpisode(s, e) {
-      const row = document.querySelector(`tr.eplist[data-pes="${s}"][data-pep="${e}"]`);
-      if (row) row.click();
-      else toast("Episode not available");
+      if (!document.querySelector(`tr.eplist[data-pes="${s}"][data-pep="${e}"]`)) return toast("Episode not available");
+      location.assign(`/watch/tv/${pid}/${d.slug || "x"}/season/${s}/episode/${e}`);
     }
     function playMovie() {
-      window.__fcAllowAutostart = true;
-      try {
-        window.jwplayer("player").play();
-      } catch (err) {
-        location.hash = "play";
-        location.reload();
-      }
+      location.hash = "play";
+      location.reload();
     }
     const favEl = () => document.querySelector(`.favorite[data-pid="${pid}"]`);
     const isFav = () => !!favEl() && !favEl().classList.contains("fa-heart-o");
@@ -1254,7 +1469,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
 
   // src/shell/shell.js
   function route(path) {
-    if (path === "/" || path === "/home") return (app) => homeView(app);
+    if (path === "/" || path === "/home") return (app) => location.hash === "#settings" ? settingsView(app) : homeView(app);
     if (/^\/mylists\//.test(path)) return (app) => favouritesView(app);
     const lib = /^\/show\/(tvshows|movies)/.exec(path);
     if (lib) return (app) => libraryView(app, lib[1] === "movies" ? "movies" : "tv");
@@ -1270,17 +1485,28 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     document.head.appendChild(document.createElement("style")).textContent = jellyfin_default;
     const app = document.body.appendChild(h("div", { id: "fc-app" }));
     view(app);
+    if (location.pathname === "/" || location.pathname === "/home") {
+      window.addEventListener("hashchange", () => {
+        app.replaceChildren();
+        app.scrollTop = 0;
+        view(app);
+      });
+    }
     const osd = createOsd();
     const setPlaying = (on) => {
       document.documentElement.classList.toggle("fc-playing", on);
       if (on) osd.attach();
       else osd.detach();
     };
-    document.addEventListener("playing", (e) => {
-      if (!(e.target instanceof HTMLVideoElement) || document.querySelector(".player.hide") || !(e.target.duration > 120)) return;
+    const onPlay = (e) => {
+      const v = e.target;
+      if (!(v instanceof HTMLVideoElement) || v.paused || document.documentElement.classList.contains("fc-playing")) return;
+      if (document.querySelector(".player.hide") || v.duration <= 120) return;
       if (/^\/watch\/movie\//.test(location.pathname) && !window.__fcAllowAutostart) return;
       setPlaying(true);
-    }, true);
+    };
+    document.addEventListener("playing", onPlay, true);
+    document.addEventListener("timeupdate", onPlay, true);
     const player = document.querySelector(".player");
     if (player) new MutationObserver(() => {
       if (player.classList.contains("hide")) setPlaying(false);
@@ -1290,7 +1516,11 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
 
   // src/shell/autostart.js
   function holdMovieAutostart() {
-    if (!/^\/watch\/movie\//.test(location.pathname) || location.hash === "#play") return;
+    if (!/^\/watch\/movie\//.test(location.pathname)) return;
+    if (location.hash === "#play") {
+      window.__fcAllowAutostart = true;
+      return;
+    }
     let jw2;
     const wrap = (fn) => typeof fn !== "function" ? fn : new Proxy(fn, {
       apply(t, self, args) {
@@ -1328,10 +1558,10 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     window.__fcTv = true;
     holdMovieAutostart();
     const DEFAULTS = { autoplayEnabled: true, creditsOffset: 20, countdownSecs: 10, autoplayOff: [], stillWatching: true, swEpisodes: 3, swMinutes: 90 };
-    const SETTINGS_KEY = "fc-tv-settings";
+    const SETTINGS_KEY2 = "fc-tv-settings";
     const settings = () => {
       try {
-        return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY)) };
+        return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY2)) };
       } catch {
         return { ...DEFAULTS };
       }
@@ -1452,7 +1682,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       } else if (code === RED2) {
         const s = settings();
         s.autoplayEnabled = !s.autoplayEnabled;
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+        localStorage.setItem(SETTINGS_KEY2, JSON.stringify(s));
         pushSettings();
         toast2(`Autoplay ${s.autoplayEnabled ? "on" : "off"}`);
       }
@@ -1464,7 +1694,8 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       } catch {
       }
       (_a = document.querySelector(".player")) == null ? void 0 : _a.classList.add("hide");
-      history.replaceState(null, "", location.pathname.split("/").slice(0, 5).join("/") + location.hash);
+      history.replaceState(null, "", location.pathname.split("/").slice(0, 5).join("/") + (location.hash.startsWith("#season-") ? location.hash : ""));
+      window.__fcAllowAutostart = false;
       shell == null ? void 0 : shell.stop();
       setTimeout(() => {
         var _a2;

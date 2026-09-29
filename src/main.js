@@ -130,7 +130,8 @@ import { holdMovieAutostart } from './shell/autostart.js';
   function closePlayer() {
     try { jwplayer('player').pause(); } catch {}
     document.querySelector('.player')?.classList.add('hide');
-    history.replaceState(null, '', location.pathname.split('/').slice(0, 5).join('/') + location.hash);
+    history.replaceState(null, '', location.pathname.split('/').slice(0, 5).join('/') + (location.hash.startsWith('#season-') ? location.hash : ''));
+    window.__fcAllowAutostart = false;
     shell?.stop();
     setTimeout(() => ['.jf-detailbtn--play', '.jf-main .jf-card', '.jf-main button'].map((s) => document.querySelector(`#fc-app ${s}`)).find(Boolean)?.focus({ preventScroll: true }), 0);
   }

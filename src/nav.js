@@ -10,24 +10,30 @@ const DIRS = {
 const center = (r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
 
 // Pure: `from` and `candidates[i].rect` are DOMRect-like. Returns the best candidate or null.
+// Targets that overlap the current one sideways (same row for ←/→, same column for ↑/↓) win outright, nearest first;
+// only if there are none do we fall back to a weighted score. (Edge gaps alone let a header tab above a row beat the
+// next card in the row — the v0.3.0 "can't reach Favourites" bug.)
 export function pickNext(from, candidates, dir) {
   const { axis, sign } = DIRS[dir];
   const other = axis === 'x' ? 'y' : 'x';
+  const lo = other === 'x' ? 'left' : 'top';
+  const size = other === 'x' ? 'width' : 'height';
   const a = center(from);
-  let best = null;
-  let bestScore = Infinity;
+  const scored = [];
   for (const c of candidates) {
     const b = center(c.rect);
     const along = (b[axis] - a[axis]) * sign;
     if (along <= 1) continue; // not in that direction
-    // Sideways distance = gap between the two rects' edges (0 if they overlap), so a wide control like the
-    // OSD timeline is reachable from any button under it; centre distance only breaks ties.
-    const lo = other === 'x' ? 'left' : 'top';
-    const size = other === 'x' ? 'width' : 'height';
     const gap = Math.max(0, c.rect[lo] - (from[lo] + from[size]), from[lo] - (c.rect[lo] + c.rect[size]));
-    const across = gap * 2 + Math.abs(b[other] - a[other]) * 0.1;
-    const score = along + across; // prefer staying in the same row/column
-    if (score < bestScore) { bestScore = score; best = c; }
+    scored.push({ c, along, gap, off: Math.abs(b[other] - a[other]) });
+  }
+  const inLine = scored.filter((s) => s.gap === 0);
+  const pool = inLine.length ? inLine : scored;
+  let best = null;
+  let bestScore = Infinity;
+  for (const s of pool) {
+    const score = s.along + s.gap * 2 + s.off * 0.1;
+    if (score < bestScore) { bestScore = score; best = s.c; }
   }
   return best;
 }

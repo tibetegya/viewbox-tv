@@ -14,7 +14,7 @@ await build({
   format: 'iife',
   target: TARGET,
   loader: { '.css': 'text' },
-  define: { PLAYER_SRC: JSON.stringify(player.code) },
+  define: { PLAYER_SRC: JSON.stringify(player.code), VERSION: JSON.stringify(JSON.parse(await readFile(new URL('package.json', import.meta.url), 'utf8')).version) },
   legalComments: 'none',
 });
 console.log('built dist/main.js');

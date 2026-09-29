@@ -20,13 +20,16 @@ export function detailsView(app, type, pid) {
     if (last) { const i = allEps.findIndex((x) => x.season === last.season && x.episode === last.episode); if (allEps[i + 1]) return allEps[i + 1]; }
     return allEps[0];
   }
+  // Start playback by loading the episode's own URL: the site autoplays it on load. Starting it in-page (clicking the
+  // hidden episode row) works on desktop Chrome but not on the TV (reported on the UA55TU8000), while URL loads did.
   function playEpisode(s, e) {
-    const row = document.querySelector(`tr.eplist[data-pes="${s}"][data-pep="${e}"]`);
-    if (row) row.click(); else toast('Episode not available');
+    if (!document.querySelector(`tr.eplist[data-pes="${s}"][data-pep="${e}"]`)) return toast('Episode not available');
+    location.assign(`/watch/tv/${pid}/${d.slug || 'x'}/season/${s}/episode/${e}`);
   }
+  // Movies: reload with #play, which lets the site's autoplay through (autostart.js holds it otherwise).
   function playMovie() {
-    window.__fcAllowAutostart = true;
-    try { window.jwplayer('player').play(); } catch (err) { location.hash = 'play'; location.reload(); }
+    location.hash = 'play';
+    location.reload();
   }
   const favEl = () => document.querySelector(`.favorite[data-pid="${pid}"]`);
   const isFav = () => !!favEl() && !favEl().classList.contains('fa-heart-o');

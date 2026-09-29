@@ -1,7 +1,8 @@
 // Movie pages start playing as soon as they load. A Jellyfin-style details page must not: that would record and
 // sync a watch position just for browsing. Runs at injection time, before the site's scripts where possible.
 export function holdMovieAutostart() {
-  if (!/^\/watch\/movie\//.test(location.pathname) || location.hash === '#play') return;
+  if (!/^\/watch\/movie\//.test(location.pathname)) return;
+  if (location.hash === '#play') { window.__fcAllowAutostart = true; return; } // Play was pressed: let it start
   // 1) Intercept JW Player's setup() and force autostart off (works when we're injected before jwplayer.js).
   let jw;
   const wrap = (fn) => (typeof fn !== 'function' ? fn : new Proxy(fn, {

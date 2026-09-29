@@ -35,6 +35,7 @@ const ICONS = {
   sort: 'M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z',
   tv: 'M21 3H3a2 2 0 00-2 2v12a2 2 0 002 2h5v2h8v-2h5a2 2 0 001.99-2L23 5a2 2 0 00-2-2zm0 14H3V5h18v12z',
   movie: 'M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4a2 2 0 00-1.99 2L2 18a2 2 0 002 2h16a2 2 0 002-2V4h-4z',
+  person: 'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
   star: 'M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z',
 };
 
@@ -93,9 +94,17 @@ export function header({ tabs, active, title } = {}) {
       h('a', { class: 'jf-iconbtn', href: '/home', 'aria-label': 'Home' }, icon('home')),
       title && h('span', { class: 'jf-header__title' }, title));
   const mid = h('nav', { class: 'jf-tabs' }, (tabs || []).map((t) => h('a', { class: `jf-tab${t.id === active ? ' jf-tab--active' : ''}`, href: t.href }, t.label)));
-  const right = h('div', { class: 'jf-header__right' }, h('a', { class: 'jf-iconbtn', href: '/search/', 'aria-label': 'Search' }, icon('search')), clock());
+  const signedIn = isSignedIn();
+  const right = h('div', { class: 'jf-header__right' },
+    !signedIn && h('a', { class: 'jf-signin', href: '/home#settings' }, 'Sign in'),
+    h('a', { class: 'jf-iconbtn', href: '/search/', 'aria-label': 'Search' }, icon('search')),
+    h('a', { class: 'jf-iconbtn', href: '/home#settings', 'aria-label': 'Settings' }, icon('person')),
+    clock());
   return h('header', { class: 'jf-header' }, left, mid, right);
 }
+
+// The site shows a "My Account" link only when a VIP session is active (PRD Appendix A).
+export const isSignedIn = () => !!document.querySelector('a[href="/account"]');
 
 export const toast = (text) => {
   const t = document.body.appendChild(h('div', { class: 'fc-toast', role: 'status' }, text));

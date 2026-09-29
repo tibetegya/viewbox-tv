@@ -36,3 +36,18 @@ test('normalizeSite accepts bare hosts and full URLs, rejects junk', () => {
   assert.equal(normalizeSite('javascript:alert(1)'), null);
   assert.equal(normalizeSite('localhost'), null);
 });
+
+test('pickNext: next card in the row beats a header tab just above (v0.3.0 regression)', () => {
+  const movies = { left: 514, top: 160, width: 427, height: 240 };
+  const favourites = { rect: { left: 965, top: 160, width: 427, height: 240 } };
+  const homeTab = { rect: { left: 822, top: 0, width: 115, height: 86 } };
+  assert.equal(pickNext(movies, [homeTab, favourites], 'right'), favourites);
+});
+
+test('pickNext: a wide control above is reachable from any button under it (OSD timeline)', () => {
+  const ff = { left: 150, top: 1000, width: 56, height: 56 };
+  const slider = { rect: { left: 100, top: 958, width: 1700, height: 38 } };
+  const back = { rect: { left: 30, top: 22, width: 56, height: 56 } };
+  assert.equal(pickNext(ff, [back, slider], 'up'), slider);
+  assert.equal(pickNext(slider.rect, [back], 'up'), back);
+});
