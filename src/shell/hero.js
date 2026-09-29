@@ -29,8 +29,11 @@ export function heroView(all) {
       meta && h('div', { class: 'ah-meta' }, meta),
       it.overview && h('div', { class: 'ah-overview' }, it.overview),
       h('div', { class: 'ah-buttons' }, watch, pauseBtn));
-    const item = h('div', { class: 'ah-item' }, media, info);
-    return { it, item, media, info, watch, pauseBtn };
+    media.addEventListener('focus', () => item.classList.add('ah-item--focus'));
+    media.addEventListener('blur', () => item.classList.remove('ah-item--focus'));
+    const mute = h('div', { class: 'ah-mute', 'aria-hidden': 'true', hidden: true }, icon('mute')); // display only
+    const item = h('div', { class: 'ah-item' }, media, info, mute);
+    return { it, item, media, info, watch, pauseBtn, mute };
   });
   const track = h('div', { class: 'ah-track' }, els.map((e) => e.item));
   const dots = h('div', { class: 'ah-dots' }, items.map(() => h('span', { class: 'ah-dot' })));
@@ -57,6 +60,7 @@ export function heroView(all) {
     e.item.classList.toggle('ah-item--playing', playing);
     e.pauseBtn.replaceChildren(icon(playing ? 'pause' : 'play'));
     e.pauseBtn.setAttribute('aria-label', playing ? 'Pause trailer' : 'Play trailer');
+    e.mute.hidden = !(player && player.muted && player.started);
   }
   function load() {
     stop();
@@ -79,7 +83,7 @@ export function heroView(all) {
     e.media.append(frame);
     player = { frame, state: -1, userPaused: false, muted, id };
     // Sound: if it hasn't started, autoplay with sound was refused — play muted now and unmute on the next key press.
-    if (!muted) player.soundTimer = setTimeout(() => { if (player && player.frame === frame && player.state !== 1) { post(frame, 'mute'); post(frame, 'playVideo'); player.muted = true; } }, SOUND_CHECK_MS);
+    if (!muted) player.soundTimer = setTimeout(() => { if (player && player.frame === frame && player.state !== 1) { post(frame, 'mute'); post(frame, 'playVideo'); player.muted = true; paint(); } }, SOUND_CHECK_MS);
   }
   const onMessage = (ev) => {
     if (!player || ev.source !== player.frame.contentWindow) return;
@@ -105,7 +109,8 @@ export function heroView(all) {
   }
 
   // ---- items ----
-  function select(i, focus = true) {
+  // focus: 'card' | 'watch' | 'last' (the row's last button) | false
+  function select(i, focus = 'card') {
     idx = Math.max(0, Math.min(els.length - 1, i));
     els.forEach((e, j) => {
       const on = j === idx;
@@ -115,15 +120,26 @@ export function heroView(all) {
       dots.children[j].classList.toggle('ah-dot--on', on);
     });
     track.style.setProperty('--i', idx);
-    if (focus) cur().media.focus({ preventScroll: true });
-    load();
+    load(); // (decides whether the Pause button shows)
+    const e = cur();
+    const target = focus === 'card' ? e.media : focus === 'watch' ? e.watch : focus === 'last' ? (e.pauseBtn.hidden ? e.watch : e.pauseBtn) : null;
+    if (target) target.focus({ preventScroll: true });
   }
 
   keyHook.fn = (e) => {
     if (!root.isConnected) { keyHook.fn = null; window.removeEventListener('message', onMessage); stop(); return false; }
-    if (player && player.muted && player.state === 1) { post(player.frame, 'unMute'); player.muted = false; } // a key press is a user gesture
-    if (document.activeElement !== cur().media) return false;
+    if (player && player.muted && player.state === 1) { post(player.frame, 'unMute'); player.muted = false; paint(); } // a key press is a user gesture
     const k = e.keyCode;
+    const c = cur();
+    const a = document.activeElement;
+    // Button row: ← on Watch → previous item's last button (or the sidebar); → on the last button → next item's Watch.
+    if (a === c.watch || a === c.pauseBtn) {
+      const last = c.pauseBtn.hidden ? c.watch : c.pauseBtn;
+      if (k === 37 && a === c.watch) { if (idx > 0) select(idx - 1, 'last'); else enterSidebar(); return true; }
+      if (k === 39 && a === last) { if (idx < els.length - 1) select(idx + 1, 'watch'); return true; }
+      return false;
+    }
+    if (a !== c.media) return false;
     if (k === 37) { if (idx > 0) select(idx - 1); else enterSidebar(); return true; } // (the buttons sit left of the card's centre)
     if (k === 39) { if (idx < els.length - 1) select(idx + 1); return true; }
     if (k === 13) { toggle(); return true; }

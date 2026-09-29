@@ -1101,17 +1101,18 @@ html.fc-playing #fc-loading { display: none; }
 .jf-main--rail { padding-left: 96px; }
 .nv-sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 30; width: 96px; display: flex; flex-direction: column; padding: 28px 16px; box-sizing: border-box; overflow: hidden;
   background: linear-gradient(90deg, rgba(13, 13, 13, .92) 0, rgba(13, 13, 13, .78) 70%, rgba(13, 13, 13, 0) 100%); transition: width .22s cubic-bezier(.22, 1, .36, 1), background .22s; }
-.nv-sidebar:focus-within { width: 360px; background: linear-gradient(90deg, rgba(10, 10, 10, .98) 0, rgba(10, 10, 10, .96) 72%, rgba(10, 10, 10, 0) 100%); }
+.nv-sidebar:focus-within { width: 480px; background: linear-gradient(90deg, rgba(10, 10, 10, .97) 0, rgba(10, 10, 10, .97) 368px, rgba(10, 10, 10, 0) 100%); } /* solid past the items (\u2264336px), then fade */
 .nv-side__items { margin: auto 0; display: flex; flex-direction: column; gap: 12px; }
-.nv-side__item { display: flex; align-items: center; gap: 22px; height: 64px; border-radius: 18px; color: #8f8f8f; white-space: nowrap; }
+#fc-app .nv-side__item { display: flex; align-items: center; gap: 22px; width: 64px; height: 64px; border-radius: 18px; color: #8f8f8f; white-space: nowrap; transition: width .22s cubic-bezier(.22, 1, .36, 1); }
+#fc-app .nv-sidebar:focus-within .nv-side__item { width: 320px; }
 .nv-side__icon { flex: none; width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center; }
 .nv-side__icon .jf-icon { width: 34px; height: 34px; fill: currentColor; }
-.nv-side__item--active { color: #fff; }
+#fc-app .nv-side__item--active { color: #fff; } /* #fc-app: beats \`#fc-app a { color: inherit }\` */
 .nv-side__item--active .nv-side__icon { background: #fff; color: #111; }
 .nv-side__label { font: 600 26px/1 var(--jf-font); opacity: 0; transition: opacity .18s; }
 .nv-sidebar:focus-within .nv-side__label { opacity: 1; }
-.nv-side__item:focus { color: #fff; background: rgba(255, 255, 255, .14); }
-.nv-side__item:focus .nv-side__icon { transform: scale(1.06); }
+#fc-app .nv-side__item:focus { color: #111; background: #fff; } /* focused: a white pill, dark icon + label */
+.nv-side__item:focus .nv-side__icon { background: transparent; color: #111; }
 .nv-side__avatar { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 600 24px/1 var(--jf-font); color: #fff; }
 .jf-corner { position: fixed; top: 22px; right: 40px; z-index: 25; display: flex; align-items: center; gap: 18px; text-shadow: 0 1px 6px rgba(0, 0, 0, .8); }
 .jf-corner .jf-clock { font-size: 24px; margin: 0; }
@@ -1119,33 +1120,45 @@ html.fc-playing #fc-loading { display: none; }
 .jf-pagetitle { margin: 0; padding: 36px 0 8px var(--jf-pad); font: 600 40px/1.2 var(--jf-font); color: var(--jf-text); }
 
 /* ---- Home hero (Apple TV\u2013style): active 16:9, others 4:3, half the screen tall ---- */
-.ah-hero { position: relative; overflow: hidden; padding: 44px 0 4px var(--jf-pad); --ah-h: 50vh; --ah-gap: 24px; }
+.ah-hero { position: relative; overflow: hidden; padding: 64px 0 40px var(--jf-pad); --ah-h: 50vh; --ah-gap: 32px; }
+.ah-hero + .jf-personal .jf-section:first-child .jf-section__title, .ah-hero + .jf-personal:empty + .jf-section .jf-section__title { padding-top: 8px; }
 .ah-track { display: flex; gap: var(--ah-gap); height: var(--ah-h); transform: translateX(calc(var(--i, 0) * -1 * (var(--ah-h) * 4 / 3 + var(--ah-gap)))); transition: transform .45s cubic-bezier(.22, 1, .36, 1); }
-.ah-item { position: relative; flex: none; height: 100%; width: calc(var(--ah-h) * 4 / 3); transition: width .45s cubic-bezier(.22, 1, .36, 1); }
+.ah-item { position: relative; flex: none; height: 100%; width: calc(var(--ah-h) * 4 / 3); }
 .ah-item--active { width: calc(var(--ah-h) * 16 / 9); }
-.ah-media { position: absolute; inset: 0; border-radius: 16px; overflow: hidden; background: #1a1a1a center / cover no-repeat; }
+.ah-media { position: absolute; inset: 0; border-radius: 16px; overflow: hidden; background: #1a1a1a center / cover no-repeat; clip-path: inset(0 round 16px); isolation: isolate; }
 .ah-item:not(.ah-item--active) .ah-media { filter: brightness(.55); }
 .ah-media::after { content: ''; position: absolute; inset: 0; pointer-events: none; transition: opacity .6s;
   background: linear-gradient(0deg, rgba(0, 0, 0, .88) 0, rgba(0, 0, 0, .45) 38%, rgba(0, 0, 0, 0) 68%), linear-gradient(90deg, rgba(0, 0, 0, .55) 0, rgba(0, 0, 0, 0) 55%); }
-.ah-item:not(.ah-item--active) .ah-media::after { opacity: 0; }
+.ah-item:not(.ah-item--active) .ah-media::after { background: linear-gradient(0deg, rgba(0, 0, 0, .8) 0, rgba(0, 0, 0, 0) 45%); }
 .ah-item--playing .ah-media::after { opacity: 0; }
-.ah-media:focus { box-shadow: 0 0 0 4px var(--jf-focus), 0 18px 50px rgba(0, 0, 0, .6); }
+/* focus ring on the item (clip-path on .ah-media would cut it off); :has() isn't in the TV's Chrome 94 \u2192 class from hero.js */
+.ah-item::after { content: ''; position: absolute; inset: 0; border-radius: 16px; pointer-events: none; box-shadow: 0 0 0 4px var(--jf-focus), 0 18px 50px rgba(0, 0, 0, .6); opacity: 0; }
+.ah-item--focus::after { opacity: 1; }
 .ah-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; pointer-events: none; opacity: 0; transform: scale(1.2); transition: opacity .8s; }
 .ah-item--video .ah-video { opacity: 1; }
-.ah-info { position: absolute; left: 56px; right: 56px; bottom: 44px; display: none; transition: opacity .5s; }
-.ah-item--active .ah-info { display: block; }
+.ah-info { position: absolute; left: 40px; right: 40px; bottom: 32px; transition: opacity .5s; }
+.ah-item--active .ah-info { left: 56px; right: 56px; bottom: 48px; }
+.ah-item:not(.ah-item--active) .ah-title { font-size: 34px; max-width: 100%; }
+.ah-item:not(.ah-item--active) .ah-meta { font-size: 19px; margin-top: 8px; }
+.ah-overview, .ah-buttons { max-height: 0; opacity: 0; visibility: hidden; overflow: hidden; transition: max-height .3s ease, opacity .3s ease, margin .3s ease; }
+.ah-item--active .ah-overview { max-height: 64px; opacity: 1; visibility: visible; }
+.ah-item--active .ah-buttons { max-height: 90px; opacity: 1; visibility: visible; overflow: visible; }
 .ah-item--playing .ah-info { opacity: 0; }
 .ah-item--playing .ah-info:focus-within { opacity: 1; }
 .ah-title { font: 700 58px/1.08 var(--jf-font); color: #fff; letter-spacing: -.5px; text-shadow: 0 2px 16px rgba(0, 0, 0, .5); max-width: 80%; }
 .ah-meta { margin-top: 12px; font: 600 22px/1.3 var(--jf-font); color: rgba(255, 255, 255, .85); }
-.ah-overview { margin-top: 10px; max-width: 62%; font: 400 22px/1.4 var(--jf-font); color: rgba(255, 255, 255, .85); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.ah-buttons { display: flex; gap: 16px; margin-top: 24px; }
+.ah-overview { margin-top: 12px; max-width: 62%; font: 400 22px/1.4 var(--jf-font); color: rgba(255, 255, 255, .85); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ah-buttons { display: flex; gap: 16px; margin-top: 0; }
+.ah-item--active .ah-buttons { margin-top: 28px; }
 .ah-btn { height: 60px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px !important; transition: transform .15s, background .15s; }
 .ah-btn .jf-icon { width: 30px; height: 30px; fill: currentColor; }
 .ah-watch { gap: 10px; padding: 0 34px !important; background: rgba(255, 255, 255, .92) !important; color: #111 !important; font: 700 24px/1 var(--jf-font) !important; }
 .ah-pause { width: 60px; background: rgba(255, 255, 255, .22) !important; color: #fff !important; }
 .ah-btn:focus { transform: scale(1.08); background: #fff !important; color: #111 !important; box-shadow: 0 0 0 4px var(--jf-focus); }
-.ah-dots { display: flex; gap: 10px; margin: 18px 0 0; }
+.ah-dots { display: flex; gap: 10px; margin: 24px 0 0; }
+.ah-mute { position: absolute; right: 28px; bottom: 28px; width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .45); pointer-events: none; }
+.ah-mute[hidden] { display: none; }
+.ah-mute .jf-icon { width: 28px; height: 28px; fill: #fff; }
 .ah-dot { width: 10px; height: 10px; border-radius: 5px; background: rgba(255, 255, 255, .3); transition: width .3s, background .3s; }
 .ah-dot--on { width: 30px; background: #fff; }
 `;
@@ -1250,8 +1263,11 @@ html.fc-playing #fc-loading { display: none; }
         it.overview && h("div", { class: "ah-overview" }, it.overview),
         h("div", { class: "ah-buttons" }, watch, pauseBtn)
       );
-      const item = h("div", { class: "ah-item" }, media, info);
-      return { it, item, media, info, watch, pauseBtn };
+      media.addEventListener("focus", () => item.classList.add("ah-item--focus"));
+      media.addEventListener("blur", () => item.classList.remove("ah-item--focus"));
+      const mute = h("div", { class: "ah-mute", "aria-hidden": "true", hidden: true }, icon("mute"));
+      const item = h("div", { class: "ah-item" }, media, info, mute);
+      return { it, item, media, info, watch, pauseBtn, mute };
     });
     const track = h("div", { class: "ah-track" }, els.map((e) => e.item));
     const dots = h("div", { class: "ah-dots" }, items.map(() => h("span", { class: "ah-dot" })));
@@ -1275,6 +1291,7 @@ html.fc-playing #fc-loading { display: none; }
       e.item.classList.toggle("ah-item--playing", playing);
       e.pauseBtn.replaceChildren(icon(playing ? "pause" : "play"));
       e.pauseBtn.setAttribute("aria-label", playing ? "Pause trailer" : "Play trailer");
+      e.mute.hidden = !(player && player.muted && player.started);
     }
     function load2() {
       stop();
@@ -1308,6 +1325,7 @@ html.fc-playing #fc-loading { display: none; }
           post(frame, "mute");
           post(frame, "playVideo");
           player.muted = true;
+          paint();
         }
       }, SOUND_CHECK_MS);
     }
@@ -1351,24 +1369,26 @@ html.fc-playing #fc-loading { display: none; }
       post(player.frame, player.userPaused ? "pauseVideo" : "playVideo");
       paint();
     }
-    function select(i, focus = true) {
+    function select(i, focus = "card") {
       idx = Math.max(0, Math.min(els.length - 1, i));
-      els.forEach((e, j) => {
+      els.forEach((e2, j) => {
         const on = j === idx;
-        e.item.classList.toggle("ah-item--active", on);
-        e.item.classList.remove("ah-item--playing", "ah-item--video");
+        e2.item.classList.toggle("ah-item--active", on);
+        e2.item.classList.remove("ah-item--playing", "ah-item--video");
         if (on) {
-          e.media.setAttribute("role", "button");
-          e.media.setAttribute("tabindex", "0");
+          e2.media.setAttribute("role", "button");
+          e2.media.setAttribute("tabindex", "0");
         } else {
-          e.media.removeAttribute("role");
-          e.media.removeAttribute("tabindex");
+          e2.media.removeAttribute("role");
+          e2.media.removeAttribute("tabindex");
         }
         dots.children[j].classList.toggle("ah-dot--on", on);
       });
       track.style.setProperty("--i", idx);
-      if (focus) cur().media.focus({ preventScroll: true });
       load2();
+      const e = cur();
+      const target = focus === "card" ? e.media : focus === "watch" ? e.watch : focus === "last" ? e.pauseBtn.hidden ? e.watch : e.pauseBtn : null;
+      if (target) target.focus({ preventScroll: true });
     }
     keyHook.fn = (e) => {
       if (!root.isConnected) {
@@ -1380,9 +1400,25 @@ html.fc-playing #fc-loading { display: none; }
       if (player && player.muted && player.state === 1) {
         post(player.frame, "unMute");
         player.muted = false;
+        paint();
       }
-      if (document.activeElement !== cur().media) return false;
       const k = e.keyCode;
+      const c = cur();
+      const a = document.activeElement;
+      if (a === c.watch || a === c.pauseBtn) {
+        const last = c.pauseBtn.hidden ? c.watch : c.pauseBtn;
+        if (k === 37 && a === c.watch) {
+          if (idx > 0) select(idx - 1, "last");
+          else enterSidebar();
+          return true;
+        }
+        if (k === 39 && a === last) {
+          if (idx < els.length - 1) select(idx + 1, "watch");
+          return true;
+        }
+        return false;
+      }
+      if (a !== c.media) return false;
       if (k === 37) {
         if (idx > 0) select(idx - 1);
         else enterSidebar();
@@ -1885,7 +1921,7 @@ html.fc-playing #fc-loading { display: none; }
       "section",
       { class: "jf-settings__section" },
       h("h2", { class: "jf-section__title" }, "About"),
-      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.6.0" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
+      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.6.1" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
       h("p", { class: "jf-settings__about" }, navigator.userAgent)
     );
     main.append(account, sync, playback, about);
