@@ -454,6 +454,22 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     }
     return out;
   }
+  function progressIndex(entries) {
+    const idx = { movie: {}, show: {}, episode: {} };
+    const inProgress = (pct) => pct > STARTED && pct < FINISHED;
+    const latest = {};
+    for (const e of entries) {
+      if (e.type === "movie") {
+        if (inProgress(e.pct)) idx.movie[e.pid] = e.pct;
+        continue;
+      }
+      if (inProgress(e.pct)) idx.episode[`${e.pid}:${e.season}:${e.episode}`] = e.pct;
+      if (!latest[e.pid] || e.ts > latest[e.pid].ts) latest[e.pid] = e;
+    }
+    for (const [pid, e] of Object.entries(latest)) if (inProgress(e.pct)) idx.show[pid] = e.pct;
+    return idx;
+  }
+  var progressOf = (idx, c) => (c.type === "movie" ? idx.movie[c.pid] : c.season ? idx.episode[`${c.pid}:${c.season}:${c.episode}`] : idx.show[c.pid]) || 0;
   var backdropFromHtml = (html) => (/url\("?https:\/\/img\.xcdn\.to\/t\/p\/w1280\/([A-Za-z0-9_-]+\.jpg)/.exec(html) || [])[1] || null;
   function parseCards(root) {
     return [...root.querySelectorAll(".cflip[data-href]")].map((c) => {
@@ -650,7 +666,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     return `Ends at ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
   };
   var epLabel = (s, e, title) => `S${s}:E${e}${title ? ` - ${title}` : ""}`;
-  function card({ href, onclick, image, imageSize = "w342", title, sub, progress, badge, shape = "portrait", label }) {
+  function card({ href, onclick, image, imageSize = "w342", title, sub, progress: progress2, badge, shape = "portrait", label }) {
     const bg = image ? { backgroundImage: `url("${image.startsWith("http") ? image : img(image, imageSize)}")` } : null;
     const inner = h(
       "div",
@@ -659,7 +675,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
         "div",
         { class: "jf-card__img", style: bg },
         !image && h("div", { class: "jf-card__fallback" }, title),
-        progress > 0 && h("div", { class: "jf-progress" }, h("div", { class: "jf-progress__fill", style: { width: `${Math.round(progress * 100)}%` } })),
+        progress2 > 0 && h("div", { class: "jf-progress" }, h("div", { class: "jf-progress__fill", style: { width: `${Math.round(progress2 * 100)}%` } })),
         badge && h("div", { class: "jf-badge" }, badge)
       ),
       h("div", { class: "jf-card__title" }, title),
@@ -816,7 +832,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       "section",
       { class: "jf-settings__section" },
       h("h2", { class: "jf-section__title" }, "About"),
-      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.3.1" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
+      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.3.2" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
       h("p", { class: "jf-settings__about" }, navigator.userAgent)
     );
     main.append(account, sync, playback, about);
@@ -887,7 +903,9 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
   // src/shell/views.js
   var HOME_TABS = [{ id: "home", label: "Home", href: "/home" }, { id: "favourites", label: "Favourites", href: "/mylists/favorites" }];
   var favoritePids2 = (t) => Object.keys(localStorage).filter((k) => k.startsWith(`bm:${t}:`)).map((k) => k.split(":")[2]);
-  var posterCard = (c) => card({ href: c.href, image: c.poster, title: c.title, sub: c.season ? epLabel(c.season, c.episode) : c.year });
+  var progress = null;
+  var prog = () => progress || (progress = progressIndex(watchEntries()));
+  var posterCard = (c) => card({ href: c.href, image: c.poster, title: c.title, sub: c.season ? epLabel(c.season, c.episode) : c.year, progress: progressOf(prog(), c) });
   var focusFirst = (root) => setTimeout(() => {
     var _a;
     if (!document.activeElement || document.activeElement === document.body) (_a = root.querySelector(".jf-card, button, a")) == null ? void 0 : _a.focus({ preventScroll: true });
@@ -976,7 +994,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       const scanned = load();
       const cardFor = (it) => {
         const m = meta[it.pid] || scanned[it.pid];
-        return m && m.title ? card({ href: hrefOf(it.type, it.pid, m), image: m.poster, title: m.title, sub: m.year }) : null;
+        return m && m.title ? card({ href: hrefOf(it.type, it.pid, m), image: m.poster, title: m.title, sub: m.year, progress: progressOf(prog(), it) }) : null;
       };
       const shows = items.filter((i) => i.type === "tv").map(cardFor).filter(Boolean);
       const movies = items.filter((i) => i.type === "movie").map(cardFor).filter(Boolean);

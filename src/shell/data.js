@@ -44,6 +44,22 @@ export function nextUp(entries, epsByPid) {
   return out;
 }
 
+// In-progress lookups for card progress bars (Jellyfin shows one on anything 5–90 % watched):
+// movie → its own position; show → the latest-watched episode if that one is in progress; episode → its own.
+export function progressIndex(entries) {
+  const idx = { movie: {}, show: {}, episode: {} };
+  const inProgress = (pct) => pct > STARTED && pct < FINISHED;
+  const latest = {};
+  for (const e of entries) {
+    if (e.type === 'movie') { if (inProgress(e.pct)) idx.movie[e.pid] = e.pct; continue; }
+    if (inProgress(e.pct)) idx.episode[`${e.pid}:${e.season}:${e.episode}`] = e.pct;
+    if (!latest[e.pid] || e.ts > latest[e.pid].ts) latest[e.pid] = e;
+  }
+  for (const [pid, e] of Object.entries(latest)) if (inProgress(e.pct)) idx.show[pid] = e.pct;
+  return idx;
+}
+export const progressOf = (idx, c) => (c.type === 'movie' ? idx.movie[c.pid] : c.season ? idx.episode[`${c.pid}:${c.season}:${c.episode}`] : idx.show[c.pid]) || 0;
+
 export const backdropFromHtml = (html) => (/url\("?https:\/\/img\.xcdn\.to\/t\/p\/w1280\/([A-Za-z0-9_-]+\.jpg)/.exec(html) || [])[1] || null;
 
 // ---- DOM parsers --------------------------------------------------------------------------------------------

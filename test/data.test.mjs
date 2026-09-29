@@ -35,3 +35,17 @@ test('sync code formatting and validation', () => {
   assert.ok(validCode('ABCD-1234-X'));
   assert.ok(!validCode('ABCD-1234'));
 });
+
+import { progressIndex, progressOf } from '../src/shell/data.js';
+test('progressIndex: movies, shows (latest episode) and episodes, 5–90 % only', () => {
+  const idx = progressIndex([
+    { type: 'movie', pid: 'm1', pct: 0.4, ts: 1 }, { type: 'movie', pid: 'm2', pct: 0.95, ts: 1 },
+    { type: 'tv', pid: 's1', season: 1, episode: 1, pct: 1, ts: 1 }, { type: 'tv', pid: 's1', season: 1, episode: 2, pct: 0.3, ts: 2 },
+    { type: 'tv', pid: 's2', season: 2, episode: 5, pct: 0.5, ts: 1 }, { type: 'tv', pid: 's2', season: 2, episode: 6, pct: 0.99, ts: 3 },
+  ]);
+  assert.equal(progressOf(idx, { type: 'movie', pid: 'm1' }), 0.4);
+  assert.equal(progressOf(idx, { type: 'movie', pid: 'm2' }), 0); // finished → no bar
+  assert.equal(progressOf(idx, { type: 'tv', pid: 's1' }), 0.3); // latest episode in progress
+  assert.equal(progressOf(idx, { type: 'tv', pid: 's2' }), 0); // latest episode finished
+  assert.equal(progressOf(idx, { type: 'tv', pid: 's2', season: 2, episode: 5 }), 0.5); // that episode card
+});

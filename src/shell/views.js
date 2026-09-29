@@ -1,13 +1,16 @@
 // Home, Favourites, Library and Search screens (Jellyfin TV layout, tv/JELLYFIN_STYLE.md).
 import { h, icon, card, section, header, epLabel, isSignedIn, toast } from './ui.js';
 import { applyPendingSync } from './settings.js';
-import { parseHome, parseCards, library, search, watchEntries, continueWatching, nextUp, metaCache } from './data.js';
+import { parseHome, parseCards, library, search, watchEntries, continueWatching, nextUp, metaCache, progressIndex, progressOf } from './data.js';
 import { ensureMeta, epsOf, findEp, hrefOf } from './meta.js';
 import { counts as newCounts, load as loadScan } from '../episodes.js';
 
 const HOME_TABS = [{ id: 'home', label: 'Home', href: '/home' }, { id: 'favourites', label: 'Favourites', href: '/mylists/favorites' }];
 const favoritePids = (t) => Object.keys(localStorage).filter((k) => k.startsWith(`bm:${t}:`)).map((k) => k.split(':')[2]);
-const posterCard = (c) => card({ href: c.href, image: c.poster, title: c.title, sub: c.season ? epLabel(c.season, c.episode) : c.year });
+// Watch progress (site's pos:* history), indexed once per page: poster cards show a bar like Jellyfin's when 5–90 % watched.
+let progress = null;
+const prog = () => progress || (progress = progressIndex(watchEntries()));
+const posterCard = (c) => card({ href: c.href, image: c.poster, title: c.title, sub: c.season ? epLabel(c.season, c.episode) : c.year, progress: progressOf(prog(), c) });
 const focusFirst = (root) => setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) root.querySelector('.jf-card, button, a')?.focus({ preventScroll: true }); }, 0);
 
 // ---- Home ------------------------------------------------------------------------------------------------------
@@ -88,7 +91,7 @@ export function favouritesView(app) {
     const scanned = loadScan();
     const cardFor = (it) => {
       const m = meta[it.pid] || scanned[it.pid];
-      return m && m.title ? card({ href: hrefOf(it.type, it.pid, m), image: m.poster, title: m.title, sub: m.year }) : null;
+      return m && m.title ? card({ href: hrefOf(it.type, it.pid, m), image: m.poster, title: m.title, sub: m.year, progress: progressOf(prog(), it) }) : null;
     };
     const shows = items.filter((i) => i.type === 'tv').map(cardFor).filter(Boolean);
     const movies = items.filter((i) => i.type === 'movie').map(cardFor).filter(Boolean);
