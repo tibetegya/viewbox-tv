@@ -1,0 +1,26 @@
+{
+  "name": "viewbox-tv-tizenbrew",
+  "version": "0.2.0",
+  "private": true,
+  "description": "TV UI with D-pad navigation, a new-episode row, a next-episode countdown and 'Are you still watching?'. Pick the site address on the TV.",
+  "packageType": "mods",
+  "appName": "Viewbox TV",
+  "websiteURL": "https://tibetegya.github.io/viewbox-tv/",
+  "main": "dist/main.js",
+  "evaluateScriptOnDocumentStart": false,
+  "keys": [
+    "MediaPlayPause",
+    "MediaPlay",
+    "MediaPause",
+    "MediaFastForward",
+    "MediaRewind",
+    "ColorF0Red"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

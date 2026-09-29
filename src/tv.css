@@ -1,0 +1,42 @@
+/* 10-foot UI for the site on a 1920×1080 TV. Selectors: PRD Appendix A. */
+html.fc-tv { font-size: 20px; }
+html.fc-tv body { cursor: none; }
+html.fc-tv footer, html.fc-tv .back-to-top { display: none !important; }
+
+/* Focus is the only pointer on a TV: make it unmistakable. */
+html.fc-tv :focus { outline: 4px solid #18a2b8 !important; outline-offset: 3px; }
+html.fc-tv .cflip, html.fc-tv .fc-card { transition: transform .15s ease; }
+html.fc-tv .cflip:focus, html.fc-tv .fc-card:focus { transform: scale(1.08); z-index: 5; position: relative; }
+html.fc-tv tr.eplist:focus { background: rgba(24, 162, 184, .35) !important; outline-offset: -4px; }
+html.fc-tv tr.eplist td, html.fc-tv tr.eplist th { padding: .6rem .5rem; }
+
+/* Player fills the screen while open. */
+html.fc-tv .player:not(.hide) { position: fixed !important; inset: 0; z-index: 10000; margin: 0 !important; padding: 0 !important; border-radius: 0 !important; background: #000; }
+html.fc-tv .player:not(.hide) #player { width: 100vw !important; height: 100vh !important; }
+
+#fc-new-row { margin: 1rem 2rem 2rem; }
+#fc-new-row h2 { font-size: 1.6rem; margin: 0 0 .5rem; color: inherit; } /* site has light and dark themes */
+#fc-new-row .fc-row { display: flex; gap: 1.25rem; overflow-x: auto; padding: 1.25rem 1rem; } /* room for the focus zoom + ring, which the scroller clips */
+.fc-card { flex: 0 0 180px; display: grid; gap: .35rem; color: inherit; text-decoration: none; position: relative; }
+.fc-card img { width: 180px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 6px; background: #333; }
+.fc-card .fc-count { position: absolute; top: .4rem; right: .4rem; background: #d9534f; color: #fff; border-radius: 10px; padding: 2px 8px; font-size: .75rem; }
+.fc-card .fc-title { font-size: .9rem; line-height: 1.2; }
+
+.fc-toast { position: fixed; left: 50%; bottom: 3rem; transform: translateX(-50%); z-index: 2147483647; background: rgba(20, 20, 20, .92); color: #fff; padding: .75rem 1.5rem; border-radius: 8px; font: 600 1.1rem system-ui, sans-serif; }
+
+/* Our overlays (content/player.js): bigger for the sofa; the button inside shows focus, not the whole card. */
+html.fc-tv #player > div[style*="2147483647"] { zoom: 1.5; }
+html.fc-tv #player > div[style*="2147483647"]:focus { outline: none !important; }
+
+/* Launcher (docs/index.html): choose the site address. */
+html.fc-launcher, html.fc-launcher body { margin: 0; height: 100%; background: #111; color: #eee; }
+.fc-launch { height: 100%; display: grid; place-content: center; gap: 1.5rem; text-align: center; font: 1.4rem/1.4 system-ui, sans-serif; }
+.fc-launch h1 { font-size: 3rem; margin: 0; }
+.fc-launch .fc-opening { font-size: 2rem; margin: 0; }
+.fc-launch .fc-hint { color: #aaa; margin: 0; }
+.fc-launch .fc-red { color: #fff; background: #d9534f; border-radius: 6px; padding: 0 .4em; }
+.fc-form { display: grid; gap: .75rem; width: 36rem; margin: 0 auto; text-align: left; }
+.fc-form label { font-weight: 600; }
+.fc-form input { font: inherit; font-size: 1.6rem; padding: .6rem .8rem; border-radius: 8px; border: 2px solid #555; background: #222; color: #fff; }
+.fc-form button { font: inherit; font-weight: 600; padding: .7rem; border-radius: 8px; border: 0; background: #18a2b8; color: #fff; }
+.fc-form .fc-error { color: #ff8a80; min-height: 1.4em; margin: 0; }
