@@ -13,7 +13,7 @@
     #fc-diag img { width: 160px; height: 160px; }
     #fc-diag h1 { font-size: 1.6rem; margin: 0 0 1rem; }
     #fc-diag .ua { color: #999; font-size: .8rem; }
-    #fc-diag pre { text-align: left; white-space: pre-wrap; font-size: .75rem; color: #ffb4a9; max-height: 60vh; overflow: hidden; font-size: .65rem; }
+    #fc-diag pre { text-align: left; white-space: pre-wrap; font-size: .65rem; color: #ffb4a9; max-height: 60vh; overflow: hidden; }
   </style>
 </head>
 <body>
@@ -26,18 +26,49 @@
     // then turns this page into the launcher (src/launcher.js).
     var KEYS = ['MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaFastForward', 'MediaRewind', 'ColorF0Red'];
     try { KEYS.forEach(function (k) { tizen.tvinputdevice.registerKey(k); }); } catch (e) {}
+    var SERVICE = 'http://127.0.0.1:8083/';
     var launchError = '';
-    try {
-      var pkg = tizen.application.getCurrentApplication().appInfo.packageId;
-      tizen.application.launchAppControl(new tizen.ApplicationControl('http://tizen.org/appcontrol/operation/service'), pkg + '.ViewboxService', null, function (e) {
-        launchError = 'Couldn’t start the Viewbox service: ' + e.message;
-        document.querySelector('#fc-diag p').textContent = launchError;
-      });
-    } catch (e) { launchError = 'Couldn’t start the Viewbox service: ' + e.message; }
+    var status = document.querySelector('#fc-diag p');
 
-    // If the module never takes over, say why.
-    setTimeout(function () {
-      if (document.documentElement.className.indexOf('fc-launcher') !== -1) return; // module took over: all good
+    function get(path, onload, onerror) {
+      var x = new XMLHttpRequest();
+      x.open('GET', SERVICE + path);
+      x.timeout = 3000;
+      x.onload = function () { onload(x.responseText); };
+      x.onerror = x.ontimeout = onerror;
+      x.send();
+    }
+
+    // Handshake with the service (service.js launch()): start it if needed, then either wait for the module or exit so
+    // the service can relaunch this app in debug mode (the TV only debug-launches an app that isn't running).
+    function handshake(tries) {
+      if (window.__fcTv) return; // already injected
+      get('launch', function (r) {
+        if (r === 'relaunch') { status.textContent = 'Restarting…'; try { tizen.application.getCurrentApplication().exit(); } catch (e) {} }
+        else if (r === 'wait') setTimeout(function () { handshake(tries); }, 2000);
+        else if (r === 'failed') showFailure();
+        // 'attached': the module arrives with the service's page reload
+      }, function () {
+        if (tries === 0) startService(function () { handshake(1); });
+        else if (tries < 10) setTimeout(function () { handshake(tries + 1); }, 500);
+        else showFailure();
+      });
+    }
+    function startService(done) {
+      try {
+        var pkg = tizen.application.getCurrentApplication().appInfo.packageId;
+        tizen.application.launchAppControl(new tizen.ApplicationControl('http://tizen.org/appcontrol/operation/service'), pkg + '.ViewboxService', done, function (e) {
+          launchError = 'Couldn’t start the Viewbox service: ' + e.message;
+          showFailure();
+        });
+      } catch (e) { launchError = 'Couldn’t start the Viewbox service: ' + e.message; showFailure(); }
+    }
+
+    // If the module never takes over, say why, with the service's step log (refreshed every 2 s).
+    var failed = false;
+    function showFailure() {
+      if (failed || document.documentElement.className.indexOf('fc-launcher') !== -1) return; // module took over
+      failed = true;
       var d = document.getElementById('fc-diag');
       if (!d) return;
       d.innerHTML = '<h1>Viewbox TV didn’t start</h1>' +
@@ -45,17 +76,15 @@
         '<pre>Reading the service log…</pre><p class="ua"></p>';
       d.querySelector('.ua').textContent = 'Browser: ' + navigator.userAgent;
       var pre = d.querySelector('pre');
-      // The service's step log (service.js) says where launching stopped.
-      (function poll() { // refreshed every 2 s, so the latest steps are always on screen
-        var x = new XMLHttpRequest();
-        x.open('GET', 'http://127.0.0.1:8083/');
-        x.timeout = 3000;
-        x.onload = function () { pre.textContent = (launchError ? launchError + '\n' : '') + 'Service log:\n' + (x.responseText || '(empty)'); };
-        x.onerror = x.ontimeout = function () { pre.textContent = (launchError || 'The Viewbox service isn’t running (no log at 127.0.0.1:8083).'); };
-        x.send();
+      (function poll() {
+        get('', function (t) { pre.textContent = (launchError ? launchError + '\n' : '') + 'Service log:\n' + (t || '(empty)'); },
+          function () { pre.textContent = launchError || 'The Viewbox service isn’t running (no log at 127.0.0.1:8083).'; });
         setTimeout(poll, 2000);
       })();
-    }, 20000);
+    }
+
+    handshake(0);
+    setTimeout(showFailure, 25000);
   </script>
 </body>
 </html>

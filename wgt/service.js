@@ -11,21 +11,23 @@ const http = require('http');
 const adbhost = require('adbhost');
 const CDP = require('chrome-remote-interface');
 
-// Step log, served on 127.0.0.1:8083 so the start page can show where launching stopped.
+const APP = 'ViewboxTV';
+let client = null; // DevTools connection to the app, while it's open
+let connecting = false; // a debug relaunch is in progress
+
+// Step log, so the start page can show where launching stopped.
 const logs = [];
 function log(msg) {
   logs.push(`${Math.round(process.uptime())}s ${msg}`);
   if (logs.length > 60) logs.shift();
   console.log(`[viewbox] ${msg}`);
 }
+
+// 127.0.0.1:8083 — `/` the step log; `/launch` the start page's handshake (see launch()).
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-  res.end(logs.join('\n'));
+  res.end(req.url === '/launch' ? launch() : logs.join('\n'));
 }).on('error', (e) => log(`log server: ${e.message}`)).listen(8083, '127.0.0.1');
-
-const APP = 'ViewboxTV';
-let client = null; // DevTools connection to the app, while it's open
-let connecting = false;
 
 // Inject at document start in every new page (no flash of the site's own UI), plus into contexts that already exist.
 // main.js guards against running twice (window.__fcTv).
@@ -52,15 +54,16 @@ function attach(port, host, attempt) {
   });
 }
 
-// `0 debug <app id>` relaunches the app with a DevTools port and prints "... port: 12345".
-function relaunchInDebug(attempt) {
+// `0 debug <app id>` relaunches the app with a DevTools port and prints "... port: 12345". The TV only does this for an
+// app that isn't running, so (like TizenBrew) the start page exits right after asking and we wait a second first.
+function relaunchInDebug() {
   const pkg = tizen.application.getAppInfo().packageId;
   const tizen3 = tizen.systeminfo.getCapability('http://tizen.org/feature/platform.version').startsWith('3.0');
   const cmd = `0 debug ${pkg}.${APP}${tizen3 ? ' 0' : ''}`;
-  log(`Node ${process.version}; sdb (try ${attempt}): ${cmd}`);
+  log(`Node ${process.version}; sdb: ${cmd}`);
   const adb = adbhost.createConnection({ host: '127.0.0.1', port: 26101 });
   let answered = false;
-  // Packet-level trace (adbhost ignores AUTH, so a stall after "connected" shows up here).
+  // Packet-level trace (adbhost ignores AUTH, so a stall after "socket open" shows up here).
   const trace = adb._onPacket;
   adb._onPacket = function () {
     const p = this._packet;
@@ -82,24 +85,34 @@ function relaunchInDebug(attempt) {
   });
   adb._stream.on('end', () => log('sdbd closed the connection'));
   adb._stream.on('error', (e) => { answered = true; connecting = false; log(`sdbd connection failed (Developer mode on, Host PC IP 127.0.0.1?): ${e.message}`); });
-  // No answer: drop this connection and try again (up to 3 times).
   setTimeout(() => {
     if (answered) return;
-    log('no answer from sdbd in 6 s');
+    connecting = false;
+    log('no answer from sdbd in 15 s');
     try { adb._stream.destroy(); } catch (e) {}
-    if (attempt < 3) relaunchInDebug(attempt + 1); else connecting = false;
-  }, 6000);
+  }, 15000);
 }
 
-// The start page asks for this on every launch; only act when the app isn't already attached.
-function ensure() {
-  log(`launch request (${client ? 'attached' : connecting ? 'connecting' : 'idle'})`);
-  if (client || connecting) return;
+// Start page handshake. "attached": the module is injected (or arrives with the reload). "relaunch": the page must exit
+// now; we relaunch it in debug mode in 1 s. "wait": a relaunch is in progress. "failed": relaunching keeps failing —
+// stop, so the page doesn't exit/relaunch in a loop, and show the log.
+let relaunches = [];
+function launch() {
+  const state = client ? 'attached' : connecting ? 'wait' : null;
+  if (state) { log(`launch request: ${state}`); return state; }
+  relaunches = relaunches.filter((t) => Date.now() - t < 120000);
+  if (relaunches.length >= 2) { log('launch request: failed (2 relaunches in 2 min without DevTools)'); return 'failed'; }
+  relaunches.push(Date.now());
   connecting = true;
-  try { relaunchInDebug(1); } catch (e) { connecting = false; log(`relaunch failed: ${e.message}`); }
+  log('launch request: relaunch (the app exits, debug relaunch in 1 s)');
+  setTimeout(() => {
+    try { relaunchInDebug(); } catch (e) { connecting = false; log(`relaunch failed: ${e.message}`); }
+  }, 1000);
+  return 'relaunch';
 }
 
-module.exports.onStart = ensure;
-module.exports.onRequest = ensure;
+module.exports.onStart = () => log('service started');
+module.exports.onRequest = () => {};
 module.exports.onExit = () => { if (client) client.close(); };
 module.exports.attach = attach; // for desktop testing
+module.exports.launch = launch; // for desktop testing
