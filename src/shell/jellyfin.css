@@ -305,8 +305,8 @@ html.fc-playing #fc-loading { display: none; }
 /* focus ring on the item (clip-path on .ah-media would cut it off); :has() isn't in the TV's Chrome 94 → class from hero.js */
 .ah-item::after { content: ''; position: absolute; inset: 0; border-radius: 16px; pointer-events: none; box-shadow: 0 0 0 4px var(--jf-focus), 0 18px 50px rgba(0, 0, 0, .6); opacity: 0; }
 .ah-item--focus::after { opacity: 1; }
-.ah-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; pointer-events: none; opacity: 0; transform: scale(1.2); transition: opacity .8s; }
-.ah-item--video .ah-video { opacity: 1; }
+.ah-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; pointer-events: none; opacity: 0; transform: scale(1.2); transition: opacity .2s; } /* out fast: YouTube's pause overlay mustn't show */
+.ah-item--video .ah-video { opacity: 1; transition: opacity .8s; }
 .ah-info { position: absolute; left: 40px; right: 40px; bottom: 32px; transition: opacity .5s; }
 .ah-item--active .ah-info { left: 56px; right: 56px; bottom: 48px; }
 .ah-item:not(.ah-item--active) .ah-title { font-size: 34px; max-width: 100%; }

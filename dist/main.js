@@ -1142,8 +1142,8 @@ html.fc-playing #fc-loading { display: none; }
 /* focus ring on the item (clip-path on .ah-media would cut it off); :has() isn't in the TV's Chrome 94 \u2192 class from hero.js */
 .ah-item::after { content: ''; position: absolute; inset: 0; border-radius: 16px; pointer-events: none; box-shadow: 0 0 0 4px var(--jf-focus), 0 18px 50px rgba(0, 0, 0, .6); opacity: 0; }
 .ah-item--focus::after { opacity: 1; }
-.ah-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; pointer-events: none; opacity: 0; transform: scale(1.2); transition: opacity .8s; }
-.ah-item--video .ah-video { opacity: 1; }
+.ah-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; pointer-events: none; opacity: 0; transform: scale(1.2); transition: opacity .2s; } /* out fast: YouTube's pause overlay mustn't show */
+.ah-item--video .ah-video { opacity: 1; transition: opacity .8s; }
 .ah-info { position: absolute; left: 40px; right: 40px; bottom: 32px; transition: opacity .5s; }
 .ah-item--active .ah-info { left: 56px; right: 56px; bottom: 48px; }
 .ah-item:not(.ah-item--active) .ah-title { font-size: 34px; max-width: 100%; }
@@ -1249,6 +1249,7 @@ html.fc-playing #fc-loading { display: none; }
 
   // src/shell/hero.js
   var DWELL_MS = 1200;
+  var REVEAL_MS = 3e3;
   var SOUND_CHECK_MS = 3500;
   var trailerOf = (it) => {
     const m = metaCache.all()[it.pid];
@@ -1296,14 +1297,16 @@ html.fc-playing #fc-loading { display: none; }
       clearTimeout(dwell);
       if (!player) return;
       clearTimeout(player.soundTimer);
+      clearTimeout(player.revealTimer);
       player.frame.remove();
       player = null;
     }
     function paint() {
       const e = cur();
       const playing = !!player && player.state === 1 && !player.userPaused;
-      e.item.classList.toggle("ah-item--video", !!player && player.started);
-      e.item.classList.toggle("ah-item--playing", playing);
+      const shown = playing && !!player.revealed;
+      e.item.classList.toggle("ah-item--video", shown);
+      e.item.classList.toggle("ah-item--playing", shown);
       e.pauseBtn.replaceChildren(icon(playing ? "pause" : "trailer"));
       e.pauseBtn.setAttribute("aria-label", playing ? "Pause trailer" : "Play trailer");
       e.mute.hidden = !(player && player.started);
@@ -1329,7 +1332,7 @@ html.fc-playing #fc-loading { display: none; }
       }, DWELL_MS);
     }
     function start(e, id, muted = false) {
-      const src = `https://www.youtube.com/embed/${id}?autoplay=1&mute=${muted ? 1 : 0}&controls=0&disablekb=1&fs=0&modestbranding=1&rel=0&iv_load_policy=3&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
+      const src = `https://www.youtube.com/embed/${id}?autoplay=1&mute=${muted ? 1 : 0}&controls=0&cc_load_policy=0&disablekb=1&fs=0&modestbranding=1&rel=0&iv_load_policy=3&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
       const frame = h("iframe", { class: "ah-video", src, allow: "autoplay; encrypted-media", frameborder: "0", tabindex: "-1", title: `${e.it.title} trailer` });
       frame.addEventListener("load", () => post(frame, "addEventListener", ["onStateChange"]));
       frame.addEventListener("load", () => {
@@ -1367,7 +1370,16 @@ html.fc-playing #fc-loading { display: none; }
       }
       if (state === null || state === player.state) return;
       player.state = state;
-      if (state === 1) player.started = true;
+      if (state === 1 && !player.started) {
+        player.started = true;
+        post(player.frame, "unloadModule", ["captions"]);
+        post(player.frame, "unloadModule", ["cc"]);
+        const pl = player;
+        pl.revealTimer = setTimeout(() => {
+          pl.revealed = true;
+          if (player === pl) paint();
+        }, REVEAL_MS);
+      }
       if (state === 1 && player.userPaused) post(player.frame, "pauseVideo");
       if (state === 0) {
         post(player.frame, "seekTo", [0, true]);
@@ -1890,7 +1902,7 @@ html.fc-playing #fc-loading { display: none; }
         reject(new Error("The app didn't answer \u2014 try again."));
       }, timeout);
       window.addEventListener("vb-host", on);
-      window.__vbHost(JSON.stringify({ id, cmd, version: true ? "0.7.1" : "" }));
+      window.__vbHost(JSON.stringify({ id, cmd, version: true ? "0.7.2" : "" }));
     });
   }
   var session = { get: (k) => {
@@ -2065,7 +2077,7 @@ html.fc-playing #fc-loading { display: none; }
       "section",
       { class: "jf-settings__section" },
       h("h2", { class: "jf-section__title" }, "About"),
-      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.7.1" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
+      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.7.2" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
       h("p", { class: "jf-settings__about" }, navigator.userAgent)
     );
     const upMsg = h("p", { class: "jf-settings__status", role: "status" });

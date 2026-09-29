@@ -9,6 +9,7 @@ import { ensureMeta } from './meta.js';
 import { enterSidebar } from '../nav.js';
 
 const DWELL_MS = 1200; // an item must stay active this long before its trailer loads (fast ← → doesn't load several)
+const REVEAL_MS = 3000; // YouTube's own title/channel overlay shows for the first seconds: keep our backdrop over it until then
 const SOUND_CHECK_MS = 3500; // not playing by then: autoplay with sound was blocked → play muted, unmute on next key
 
 const trailerOf = (it) => { const m = metaCache.all()[it.pid]; return m && 'trailer' in m ? m.trailer || null : undefined; };
@@ -17,7 +18,7 @@ const post = (frame, func, args = []) => { try { frame.contentWindow.postMessage
 export function heroView(all) {
   const items = all.filter((it) => it.pid); // (Home data cached by older versions has no ids)
   let idx = 0;
-  let player = null; // { frame, state, userPaused, muted, userMuted, soundTimer }
+  let player = null; // { frame, state, started, revealed, userPaused, muted, userMuted, soundTimer, revealTimer }
   let dwell = null;
 
   const els = items.map((it) => {
@@ -51,14 +52,18 @@ export function heroView(all) {
     clearTimeout(dwell);
     if (!player) return;
     clearTimeout(player.soundTimer);
+    clearTimeout(player.revealTimer);
     player.frame.remove();
     player = null;
   }
   function paint() {
     const e = cur();
     const playing = !!player && player.state === 1 && !player.userPaused;
-    e.item.classList.toggle('ah-item--video', !!player && player.started); // once playing, a paused trailer keeps its frame
-    e.item.classList.toggle('ah-item--playing', playing);
+    // Only the playing video shows — paused, buffering or ended, YouTube draws its own overlays (title, "More videos"),
+    // so our backdrop covers it.
+    const shown = playing && !!player.revealed; // (toggle(cls, undefined) would flip the class)
+    e.item.classList.toggle('ah-item--video', shown);
+    e.item.classList.toggle('ah-item--playing', shown); // (the info fades out only once the video is up)
     e.pauseBtn.replaceChildren(icon(playing ? 'pause' : 'trailer'));
     e.pauseBtn.setAttribute('aria-label', playing ? 'Pause trailer' : 'Play trailer');
     e.mute.hidden = !(player && player.started);
@@ -79,7 +84,7 @@ export function heroView(all) {
     dwell = setTimeout(() => { dwell = null; if (root.contains(document.activeElement)) start(e, id); }, DWELL_MS); // not behind the sidebar
   }
   function start(e, id, muted = false) {
-    const src = `https://www.youtube.com/embed/${id}?autoplay=1&mute=${muted ? 1 : 0}&controls=0&disablekb=1&fs=0&modestbranding=1&rel=0&iv_load_policy=3&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
+    const src = `https://www.youtube.com/embed/${id}?autoplay=1&mute=${muted ? 1 : 0}&controls=0&cc_load_policy=0&disablekb=1&fs=0&modestbranding=1&rel=0&iv_load_policy=3&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
     const frame = h('iframe', { class: 'ah-video', src, allow: 'autoplay; encrypted-media', frameborder: '0', tabindex: '-1', title: `${e.it.title} trailer` });
     frame.addEventListener('load', () => post(frame, 'addEventListener', ['onStateChange'])); // ask the player to report state
     frame.addEventListener('load', () => { try { frame.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*'); } catch (err) {} });
@@ -97,7 +102,12 @@ export function heroView(all) {
     if (d.event === 'onError') { cur().pauseBtn.hidden = true; stop(); paint(); return; } // e.g. embedding disabled
     if (state === null || state === player.state) return;
     player.state = state;
-    if (state === 1) player.started = true;
+    if (state === 1 && !player.started) {
+      player.started = true;
+      post(player.frame, 'unloadModule', ['captions']); post(player.frame, 'unloadModule', ['cc']); // no subtitles
+      const pl = player;
+      pl.revealTimer = setTimeout(() => { pl.revealed = true; if (player === pl) paint(); }, REVEAL_MS);
+    }
     if (state === 1 && player.userPaused) post(player.frame, 'pauseVideo'); // paused while it was still loading
     if (state === 0) { post(player.frame, 'seekTo', [0, true]); post(player.frame, 'playVideo'); } // loop (YouTube's loop=1 adds playlist controls)
     paint();
