@@ -26,6 +26,7 @@ await build({
 // The TV's service Node can be as old as v4 (TizenBrew checks for v4.4.3): compile the bundle down like TizenBrew does.
 const svc = join(stage, 'service.js');
 const { code } = await transformAsync(await readFile(svc, 'utf8'), { presets: [['@babel/preset-env', { targets: { node: '4' } }]], sourceType: 'script', compact: true, configFile: false, babelrc: false });
+if (/^\s*["']use strict["']/.test(code)) throw new Error('service bundle must not be strict: adbhost assigns an undeclared global');
 if (/regeneratorRuntime/.test(code)) throw new Error('service needs regenerator-runtime (async/generators in the bundle)');
 await writeFile(svc, code);
 await writeFile(join(stage, 'config.xml'), (await readFile(here('config.xml'), 'utf8')).replace('version="0.0.0"', `version="${version}"`));

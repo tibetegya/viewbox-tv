@@ -13,6 +13,7 @@
     #fc-diag img { width: 160px; height: 160px; }
     #fc-diag h1 { font-size: 1.6rem; margin: 0 0 1rem; }
     #fc-diag .ua { color: #999; font-size: .8rem; }
+    #fc-diag pre { text-align: left; white-space: pre-wrap; font-size: .75rem; color: #ffb4a9; max-height: 50vh; overflow: hidden; }
   </style>
 </head>
 <body>
@@ -25,12 +26,14 @@
     // then turns this page into the launcher (src/launcher.js).
     var KEYS = ['MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaFastForward', 'MediaRewind', 'ColorF0Red'];
     try { KEYS.forEach(function (k) { tizen.tvinputdevice.registerKey(k); }); } catch (e) {}
+    var launchError = '';
     try {
       var pkg = tizen.application.getCurrentApplication().appInfo.packageId;
       tizen.application.launchAppControl(new tizen.ApplicationControl('http://tizen.org/appcontrol/operation/service'), pkg + '.ViewboxService', null, function (e) {
-        document.querySelector('#fc-diag p').textContent = 'Couldn’t start the Viewbox service: ' + e.message;
+        launchError = 'Couldn’t start the Viewbox service: ' + e.message;
+        document.querySelector('#fc-diag p').textContent = launchError;
       });
-    } catch (e) {}
+    } catch (e) { launchError = 'Couldn’t start the Viewbox service: ' + e.message; }
 
     // If the module never takes over, say why.
     setTimeout(function () {
@@ -39,8 +42,16 @@
       if (!d) return;
       d.innerHTML = '<h1>Viewbox TV didn’t start</h1>' +
         '<p>The TV has to allow the app to load its interface: turn on <b>Developer mode</b> with <b>Host PC IP 127.0.0.1</b> (Apps → press 1-2-3-4-5), restart the TV, then open Viewbox TV again.</p>' +
-        '<p class="ua"></p>';
+        '<pre>Reading the service log…</pre><p class="ua"></p>';
       d.querySelector('.ua').textContent = 'Browser: ' + navigator.userAgent;
+      var pre = d.querySelector('pre');
+      // The service's step log (service.js) says where launching stopped.
+      var x = new XMLHttpRequest();
+      x.open('GET', 'http://127.0.0.1:8083/');
+      x.timeout = 3000;
+      x.onload = function () { pre.textContent = (launchError ? launchError + '\n' : '') + 'Service log:\n' + (x.responseText || '(empty)'); };
+      x.onerror = x.ontimeout = function () { pre.textContent = (launchError || 'The Viewbox service isn’t running (no log at 127.0.0.1:8083).'); };
+      x.send();
     }, 20000);
   </script>
 </body>
