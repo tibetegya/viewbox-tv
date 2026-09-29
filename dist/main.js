@@ -244,6 +244,7 @@
 
   // src/main.js
   (() => {
+    window.__fcTvInjected = Date.now();
     if (window.__fcTv) return;
     window.__fcTv = true;
     const DEFAULTS = { autoplayEnabled: true, creditsOffset: 20, countdownSecs: 10, autoplayOff: [], stillWatching: true, swEpisodes: 3, swMinutes: 90 };
@@ -273,8 +274,13 @@
     onReady(() => {
       var _a;
       if (isLauncher()) {
-        document.head.appendChild(document.createElement("style")).textContent = tv_default;
-        return runLauncher();
+        try {
+          document.head.appendChild(document.createElement("style")).textContent = tv_default;
+          return runLauncher();
+        } catch (e) {
+          window.__fcTvError = String(e && e.stack || e);
+          throw e;
+        }
       }
       if (!looksLikeSite()) return;
       siteActive = true;

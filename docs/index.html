@@ -8,9 +8,32 @@
   <style>
     html, body { margin: 0; height: 100%; background: #111; color: #eee; font: 24px system-ui, sans-serif; }
     body { display: grid; place-items: center; }
+    #fc-diag { max-width: 70rem; padding: 2rem; line-height: 1.4; }
+    #fc-diag h1 { font-size: 1.6rem; margin: 0 0 1rem; }
+    #fc-diag pre { white-space: pre-wrap; font-size: .8rem; color: #ffb4a9; }
+    #fc-diag .ua { color: #999; font-size: .8rem; }
   </style>
 </head>
 <body>
-  <p>Starting… Open this page from TizenBrew (“Viewbox TV”).</p>
+  <div id="fc-diag">
+    <p>Starting… Open this page from TizenBrew (“Viewbox TV”).</p>
+  </div>
+  <script>
+    // Runs even if the module never loads: after a few seconds, say why the TV UI didn't appear.
+    setTimeout(function () {
+      if (document.documentElement.className.indexOf('fc-launcher') !== -1) return; // module took over: all good
+      var d = document.getElementById('fc-diag');
+      if (!d) return;
+      var injected = window.__fcTvInjected, err = window.__fcTvError;
+      var html = '<h1>Viewbox TV didn’t start</h1>';
+      if (err) html += '<p>The module loaded but hit an error:</p><pre></pre>';
+      else if (injected) html += '<p>The module was injected but didn’t draw the start screen (no error recorded).</p>';
+      else html += '<p><b>The module was not injected.</b> Check that TizenBrew’s module name is <code>gh/tibetegya/viewbox-tv</code>, that the TV can reach cdn.jsdelivr.net, then restart TizenBrew.</p>';
+      html += '<p class="ua"></p>';
+      d.innerHTML = html;
+      if (err) d.querySelector('pre').textContent = err;
+      d.querySelector('.ua').textContent = 'Browser: ' + navigator.userAgent;
+    }, 6000);
+  </script>
 </body>
 </html>

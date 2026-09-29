@@ -8,6 +8,7 @@ import { isLauncher, runLauncher } from './launcher.js';
 
 /* global PLAYER_SRC, tizen, jwplayer */
 (() => {
+  window.__fcTvInjected = Date.now(); // read by the launcher page's diagnostics (docs/index.html)
   if (window.__fcTv) return; // TizenBrew evaluates the module in every new execution context
   window.__fcTv = true;
 
@@ -36,8 +37,14 @@ import { isLauncher, runLauncher } from './launcher.js';
 
   onReady(() => {
     if (isLauncher()) {
-      document.head.appendChild(document.createElement('style')).textContent = css;
-      return runLauncher();
+      // Errors from TizenBrew's Runtime.evaluate never reach window.onerror, so keep them for the page's diagnostics.
+      try {
+        document.head.appendChild(document.createElement('style')).textContent = css;
+        return runLauncher();
+      } catch (e) {
+        window.__fcTvError = String((e && e.stack) || e);
+        throw e;
+      }
     }
     if (!looksLikeSite()) return;
     siteActive = true;

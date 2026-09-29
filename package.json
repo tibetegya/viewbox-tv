@@ -1,6 +1,6 @@
 {
   "name": "viewbox-tv-tizenbrew",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "TV UI with D-pad navigation, a new-episode row, a next-episode countdown and 'Are you still watching?'. Pick the site address on the TV.",
   "packageType": "mods",
