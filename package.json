@@ -1,6 +1,6 @@
 {
   "name": "viewbox-tv-tizenbrew",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "Jellyfin-style TV UI (TV layout) for a streaming site: home rows, libraries, search, details, player OSD, next-episode countdown, 'Are you still watching?'. Pick the site address on the TV.",
   "packageType": "mods",
@@ -27,5 +27,6 @@
     "adbhost": "^0.0.2",
     "chrome-remote-interface": "^0.25.7",
     "esbuild": "^0.25.0"
-  }
+  },
+  "viewboxService": 1
 }

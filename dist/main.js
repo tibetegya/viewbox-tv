@@ -655,9 +655,9 @@
     }
     return on;
   };
-  var toast = (text) => {
+  var toast = (text, ms = 2e3) => {
     const t = (document.body || document.documentElement).appendChild(h("div", { class: "fc-toast", role: "status" }, text));
-    setTimeout(() => t.remove(), 2e3);
+    setTimeout(() => t.remove(), ms);
   };
 
   // ../scan.js
@@ -1161,6 +1161,13 @@ html.fc-playing #fc-loading { display: none; }
 .ah-mute .jf-icon { width: 28px; height: 28px; fill: #fff; }
 .ah-dot { width: 10px; height: 10px; border-radius: 5px; background: rgba(255, 255, 255, .3); transition: width .3s, background .3s; }
 .ah-dot--on { width: 30px; background: #fff; }
+
+/* ---- In-app update bar (top of Home) ---- */
+.vb-update { display: flex; align-items: center; gap: 20px; margin: 40px var(--jf-pad) -24px; padding: 16px 20px 16px 28px; border-radius: 16px; background: #1f2a33; border: 1px solid rgba(0, 164, 220, .45); font-size: 22px; }
+.vb-update__text { flex: 1; }
+.vb-update__btn { height: 52px !important; }
+.vb-update__btn--primary { background: #fff !important; color: #111 !important; }
+.vb-update__btn:focus { background: var(--jf-accent) !important; color: #fff !important; }
 `;
 
   // src/shell/sidebar.js
@@ -1436,7 +1443,7 @@ html.fc-playing #fc-loading { display: none; }
         cur().watch.focus({ preventScroll: true });
         return true;
       }
-      return k === 38;
+      return false;
     };
     if (typeof IntersectionObserver === "function") {
       new IntersectionObserver(([entry]) => {
@@ -1831,6 +1838,116 @@ html.fc-playing #fc-loading { display: none; }
     render();
   }
 
+  // src/shell/updates.js
+  var CHECK_KEY = "fc-tv-update-check";
+  var DISMISS_KEY = "fc-tv-update-dismissed";
+  var seq = 0;
+  var hostAvailable = () => typeof window.__vbHost === "function";
+  function request(cmd, timeout = 3e4) {
+    return new Promise((resolve, reject) => {
+      if (!hostAvailable()) return reject(new Error("Updates come from TizenBrew for this install."));
+      const id = ++seq;
+      const done = () => {
+        window.removeEventListener("vb-host", on);
+        clearTimeout(t);
+      };
+      const on = (e) => {
+        const d = e.detail || {};
+        if (d.id !== id) return;
+        done();
+        if (d.ok) resolve(d);
+        else reject(new Error(d.error || "Update failed."));
+      };
+      const t = setTimeout(() => {
+        done();
+        reject(new Error("The app didn't answer \u2014 try again."));
+      }, timeout);
+      window.addEventListener("vb-host", on);
+      window.__vbHost(JSON.stringify({ id, cmd, version: true ? "0.7.0" : "" }));
+    });
+  }
+  var session = { get: (k) => {
+    try {
+      return JSON.parse(sessionStorage.getItem(k));
+    } catch {
+      return null;
+    }
+  }, set: (k, v) => {
+    try {
+      sessionStorage.setItem(k, JSON.stringify(v));
+    } catch {
+    }
+  } };
+  async function checkOnce() {
+    const cached = session.get(CHECK_KEY);
+    if (cached) return cached;
+    const r = await request("check");
+    session.set(CHECK_KEY, r);
+    return r;
+  }
+  async function checkNow() {
+    const r = await request("check");
+    session.set(CHECK_KEY, r);
+    return r;
+  }
+  async function updateNow(onStatus) {
+    onStatus && onStatus("Downloading the update\u2026");
+    const r = await request("update", 9e4);
+    onStatus && onStatus(`Installing v${r.updating}\u2026`);
+    session.set(CHECK_KEY, null);
+    return r;
+  }
+  function banner(r) {
+    const msg = h("span", { class: "vb-update__text" });
+    const setText = (t) => {
+      msg.textContent = t;
+    };
+    const reinstall = r.needsReinstall;
+    setText(reinstall ? `Viewbox TV v${r.latest} is out \u2014 it needs a reinstall (download ViewboxTV.wgt from the GitHub release).` : `Update available: Viewbox TV v${r.latest} (you have v${r.current}).`);
+    const bar = h("div", { class: "vb-update", role: "status" }, msg);
+    const later = h("button", { class: "jf-button vb-update__btn", onclick: () => {
+      session.set(DISMISS_KEY, r.latest);
+      bar.remove();
+    } }, reinstall ? "OK" : "Not now");
+    if (!reinstall) {
+      const go = h("button", { class: "jf-button vb-update__btn vb-update__btn--primary", onclick: async () => {
+        go.disabled = true;
+        later.disabled = true;
+        try {
+          await updateNow(setText);
+        } catch (e) {
+          setText(e.message);
+          go.disabled = false;
+          later.disabled = false;
+        }
+      } }, "Update");
+      bar.append(go);
+    }
+    bar.append(later);
+    return bar;
+  }
+  async function startUpdates() {
+    if (!hostAvailable()) return;
+    try {
+      const b = await request("booted", 1e4);
+      if (b.notice) {
+        toast(b.notice, 7e3);
+        session.set(CHECK_KEY, null);
+      }
+    } catch (e) {
+    }
+    let r;
+    try {
+      r = await checkOnce();
+    } catch (e) {
+      return;
+    }
+    if (!r.available || session.get(DISMISS_KEY) === r.latest) return;
+    const main = document.querySelector("#fc-app main.jf-main--rail");
+    if (!main || !/^\/(home)?$/.test(location.pathname) || location.hash) return;
+    main.prepend(banner(r));
+  }
+
   // src/shell/settings.js
   var SETTINGS_KEY = "fc-tv-settings";
   async function signIn(email, password) {
@@ -1921,10 +2038,42 @@ html.fc-playing #fc-loading { display: none; }
       "section",
       { class: "jf-settings__section" },
       h("h2", { class: "jf-section__title" }, "About"),
-      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.6.1" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
+      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.7.0" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
       h("p", { class: "jf-settings__about" }, navigator.userAgent)
     );
-    main.append(account, sync, playback, about);
+    const upMsg = h("p", { class: "jf-settings__status", role: "status" });
+    const upBtn = h("button", { class: "jf-button" }, "Check for updates");
+    let latest = null;
+    upBtn.addEventListener("click", async () => {
+      upBtn.disabled = true;
+      try {
+        if (latest && latest.available && !latest.needsReinstall) {
+          await updateNow((t) => {
+            upMsg.textContent = t;
+          });
+          return;
+        }
+        upMsg.textContent = "Checking\u2026";
+        latest = await checkNow();
+        if (latest.failed) upMsg.textContent = `v${latest.latest} didn't start on this TV, so you're staying on v${latest.current}.`;
+        else if (!latest.available) upMsg.textContent = `You're up to date (v${latest.current}).`;
+        else if (latest.needsReinstall) upMsg.textContent = `v${latest.latest} is out, but it needs a reinstall \u2014 download ViewboxTV.wgt from the GitHub release.`;
+        else {
+          upMsg.textContent = `v${latest.latest} is available (you have v${latest.current}).`;
+          upBtn.textContent = `Update to v${latest.latest}`;
+        }
+      } catch (e) {
+        upMsg.textContent = e.message;
+      }
+      upBtn.disabled = false;
+    });
+    const updates = h(
+      "section",
+      { class: "jf-settings__section" },
+      h("h2", { class: "jf-section__title" }, "Updates"),
+      hostAvailable() ? h("div", { class: "jf-settings__form" }, upBtn, upMsg) : h("p", { class: "jf-settings__status" }, "This install updates through TizenBrew (the module version you added there).")
+    );
+    main.append(account, sync, playback, updates, about);
     setTimeout(() => (signedIn ? sync.querySelector(".jf-button") : email).focus({ preventScroll: true }), 0);
   }
 
@@ -2736,6 +2885,7 @@ html.fc-playing #fc-loading { display: none; }
       if (pid) markSeen(pid);
       if (/^\/watch\/tv\//.test(location.pathname)) loadPlayer();
       shell = startShell();
+      if (window.top === window) startUpdates();
       unboot();
       scan(false).then(() => document.dispatchEvent(new Event("fc-scanned")));
       setTimeout(() => activeEl() || move("down"), 800);

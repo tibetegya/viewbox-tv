@@ -127,7 +127,7 @@ export const isSignedIn = () => {
   return on;
 };
 
-export const toast = (text) => {
+export const toast = (text, ms = 2000) => {
   const t = (document.body || document.documentElement).appendChild(h('div', { class: 'fc-toast', role: 'status' }, text));
-  setTimeout(() => t.remove(), 2000);
+  setTimeout(() => t.remove(), ms);
 };

@@ -327,3 +327,10 @@ html.fc-playing #fc-loading { display: none; }
 .ah-mute .jf-icon { width: 28px; height: 28px; fill: #fff; }
 .ah-dot { width: 10px; height: 10px; border-radius: 5px; background: rgba(255, 255, 255, .3); transition: width .3s, background .3s; }
 .ah-dot--on { width: 30px; background: #fff; }
+
+/* ---- In-app update bar (top of Home) ---- */
+.vb-update { display: flex; align-items: center; gap: 20px; margin: 40px var(--jf-pad) -24px; padding: 16px 20px 16px 28px; border-radius: 16px; background: #1f2a33; border: 1px solid rgba(0, 164, 220, .45); font-size: 22px; }
+.vb-update__text { flex: 1; }
+.vb-update__btn { height: 52px !important; }
+.vb-update__btn--primary { background: #fff !important; color: #111 !important; }
+.vb-update__btn:focus { background: var(--jf-accent) !important; color: #fff !important; }

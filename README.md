@@ -58,6 +58,12 @@ cd tv && npm install && npm run wgt   # → dist/ViewboxTV.wgt (unsigned; Apps2S
 - The app has its own storage: sign in and enter the sync code once in Settings.
 - Updating means installing a new `.wgt`.
 
+## Updates (standalone app)
+The app checks GitHub for a newer release each time it opens. On Home a bar says **Update available: v…**; choose **Update** to download the new interface and reload on it (no reinstall), or **Not now**. Settings → Updates checks on demand.
+- A downloaded version must start correctly within 25 seconds, or the app goes back to the previous one and won't offer that version again.
+- Releases that change the app's service/package (`"viewboxService"` in package.json) say "needs a reinstall": install the new `ViewboxTV.wgt` as before.
+- With TizenBrew, updates come from the module version you added there.
+
 ## Notes
 - **New episodes come from the site's own show pages, not TMDB.** The site's CSP blocks outside APIs from injected page code, and TizenBrew doesn't bypass CSP. So "new" means actually playable on the site.
 - Scans run when the app opens (and when data is over 6 h old), not in the background; no notifications.

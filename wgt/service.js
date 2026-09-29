@@ -7,9 +7,18 @@
 // No 'use strict' here: esbuild hoists it over the whole bundle, and adbhost assigns an undeclared global
 // (`packet = …` in _onPacket), which throws in strict mode — the service then dies on sdbd's first reply.
 
+import { loadBundle, check, download, markVerified, rollback } from './updater.js';
+
 const http = require('http');
 const adbhost = require('adbhost');
 const CDP = require('chrome-remote-interface');
+
+// The interface injected into pages: the built-in copy, or a newer one downloaded in-app (updater.js).
+let bundle = loadBundle();
+let scriptId = null; // our addScriptToEvaluateOnNewDocument registration
+let bootTimer = null;
+let lastNotice = null; // shown to the page once, e.g. "Updated to v0.7.1"
+const BOOT_MS = 25000;
 
 const APP = 'ViewboxTV';
 let client = null; // DevTools connection to the app, while it's open
@@ -38,20 +47,73 @@ function attach(port, host, attempt) {
     connecting = false;
     c.on('disconnect', () => { log('DevTools disconnected'); client = null; });
     c.on('Runtime.executionContextCreated', (msg) => {
-      c.Runtime.evaluate({ expression: MODULE_SRC, contextId: msg.context.id })
+      c.Runtime.evaluate({ expression: bundle.code, contextId: msg.context.id })
         .then((r) => log(`injected into ${msg.context.origin || 'context'}${r.exceptionDetails ? ` (error: ${r.exceptionDetails.text})` : ''}`))
         .catch((e) => log(`inject failed: ${e.message}`));
     });
+    c.on('Runtime.bindingCalled', (msg) => { if (msg.name === '__vbHost') onHost(c, msg); });
     c.Runtime.enable();
-    c.Page.enable()
-      .then(() => c.Page.addScriptToEvaluateOnNewDocument({ source: MODULE_SRC }))
-      .then(() => c.Page.reload()) // the start page loaded before we attached: reload it with the module
-      .then(() => log('document-start script registered, page reloaded'))
+    // The binding must exist before the page reloads, or its first document can't reach us.
+    c.Runtime.addBinding({ name: '__vbHost' }).catch((e) => log(`binding failed: ${e.message}`))
+      .then(() => c.Page.enable())
+      .then(() => c.Page.addScriptToEvaluateOnNewDocument({ source: bundle.code }))
+      .then((r) => { scriptId = r && r.identifier; return c.Page.reload(); }) // the start page loaded before we attached
+      .then(() => { log(`document-start script registered (v${bundle.version}${bundle.downloaded ? ', downloaded' : ''}), page reloaded`); if (!bundle.verified) guardBoot(c); })
       .catch((e) => log(`Page setup failed: ${e.message}`));
   }).on('error', (e) => {
     if (attempt >= 20) { connecting = false; log(`DevTools connect failed: ${e.message}`); return; }
     setTimeout(() => attach(port, host, attempt + 1), 750);
   });
+}
+
+// ---- in-app updates: the page talks to us through the __vbHost binding (the site's CSP blocks fetching 127.0.0.1) ----
+function reply(c, contextId, detail) {
+  c.Runtime.evaluate({ expression: `window.dispatchEvent(new CustomEvent('vb-host', { detail: ${JSON.stringify(detail)} }))`, contextId }).catch(() => {});
+}
+async function swapTo(c, next) {
+  bundle = next;
+  if (scriptId) await c.Page.removeScriptToEvaluateOnNewDocument({ identifier: scriptId }).catch(() => {});
+  const r = await c.Page.addScriptToEvaluateOnNewDocument({ source: bundle.code });
+  scriptId = r && r.identifier;
+  await c.Page.reload();
+}
+// A downloaded interface must report 'booted' soon after loading, or we go back to the previous one.
+function guardBoot(c) {
+  clearTimeout(bootTimer);
+  const version = bundle.version;
+  bootTimer = setTimeout(() => {
+    const back = rollback();
+    lastNotice = `The update to v${version} didn't start — back on v${back.version}.`;
+    log(`v${version} didn't report booted: rolled back to v${back.version}`);
+    swapTo(c, back).catch((e) => log(`rollback reload failed: ${e.message}`));
+  }, BOOT_MS);
+}
+async function onHost(c, msg) {
+  let req = {};
+  try { req = JSON.parse(msg.payload); } catch (e) {}
+  const answer = (detail) => reply(c, msg.executionContextId, { id: req.id, cmd: req.cmd, ...detail });
+  try {
+    if (req.cmd === 'booted') {
+      if (req.version === bundle.version && bundle.downloaded && !bundle.verified) { clearTimeout(bootTimer); markVerified(bundle.version); bundle.verified = true; log(`v${bundle.version} booted`); }
+      answer({ ok: true, version: bundle.version, notice: lastNotice });
+      lastNotice = null;
+    } else if (req.cmd === 'check') {
+      answer({ ok: true, ...(await check(bundle.version)) });
+    } else if (req.cmd === 'update') {
+      log('update requested');
+      const from = bundle.version;
+      const next = await download(bundle.version);
+      answer({ ok: true, updating: next.version });
+      lastNotice = `Updated to v${next.version} (from v${from}).`;
+      await swapTo(c, { ...next, downloaded: true, verified: false });
+      guardBoot(c);
+    } else {
+      answer({ ok: false, error: 'unknown command' });
+    }
+  } catch (e) {
+    log(`${req.cmd} failed: ${e.message}`);
+    answer({ ok: false, error: e.message });
+  }
 }
 
 // `0 debug <app id>` relaunches the app with a DevTools port and prints "... port: 12345". The TV only does this for an
@@ -115,4 +177,5 @@ module.exports.onStart = () => log('service started');
 module.exports.onRequest = () => {};
 module.exports.onExit = () => { if (client) client.close(); };
 module.exports.attach = attach; // for desktop testing
+module.exports.bundleVersion = () => bundle.version;
 module.exports.launch = launch; // for desktop testing

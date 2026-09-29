@@ -3,6 +3,7 @@
 /* global VERSION */
 import { h, isSignedIn, toast } from './ui.js';
 import { railLayout } from './sidebar.js';
+import { hostAvailable, checkNow, updateNow } from './updates.js';
 import { loadProfiles, currentProfile, initialOf } from './profiles.js';
 
 const SETTINGS_KEY = 'fc-tv-settings';
@@ -77,6 +78,28 @@ export function settingsView(app) {
     h('p', { class: 'jf-settings__about' }, `Viewbox TV ${typeof VERSION === 'string' ? VERSION : ''} · screen ${innerWidth}×${innerHeight} @${devicePixelRatio}x · ${location.host}`),
     h('p', { class: 'jf-settings__about' }, navigator.userAgent));
 
-  main.append(account, sync, playback, about);
+  // ---- Updates (standalone app: download the latest release's interface; TizenBrew: its module version)
+  const upMsg = h('p', { class: 'jf-settings__status', role: 'status' });
+  const upBtn = h('button', { class: 'jf-button' }, 'Check for updates');
+  let latest = null;
+  upBtn.addEventListener('click', async () => {
+    upBtn.disabled = true;
+    try {
+      if (latest && latest.available && !latest.needsReinstall) { await updateNow((t) => { upMsg.textContent = t; }); return; }
+      upMsg.textContent = 'Checking…';
+      latest = await checkNow();
+      if (latest.failed) upMsg.textContent = `v${latest.latest} didn't start on this TV, so you're staying on v${latest.current}.`;
+      else if (!latest.available) upMsg.textContent = `You're up to date (v${latest.current}).`;
+      else if (latest.needsReinstall) upMsg.textContent = `v${latest.latest} is out, but it needs a reinstall — download ViewboxTV.wgt from the GitHub release.`;
+      else { upMsg.textContent = `v${latest.latest} is available (you have v${latest.current}).`; upBtn.textContent = `Update to v${latest.latest}`; }
+    } catch (e) { upMsg.textContent = e.message; }
+    upBtn.disabled = false;
+  });
+  const updates = h('section', { class: 'jf-settings__section' },
+    h('h2', { class: 'jf-section__title' }, 'Updates'),
+    hostAvailable() ? h('div', { class: 'jf-settings__form' }, upBtn, upMsg)
+      : h('p', { class: 'jf-settings__status' }, 'This install updates through TizenBrew (the module version you added there).'));
+
+  main.append(account, sync, playback, updates, about);
   setTimeout(() => (signedIn ? sync.querySelector('.jf-button') : email).focus({ preventScroll: true }), 0);
 }

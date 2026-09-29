@@ -144,7 +144,7 @@ export function heroView(all) {
     if (k === 39) { if (idx < els.length - 1) select(idx + 1); return true; }
     if (k === 13) { toggle(); return true; }
     if (k === 40) { cur().watch.focus({ preventScroll: true }); return true; }
-    return k === 38; // nothing above the hero
+    return false;
   };
 
   // Out of view (focus moved down to the rows): pause, and resume when it's back (unless the user paused it).

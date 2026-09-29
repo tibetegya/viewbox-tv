@@ -8,6 +8,7 @@ import { scan, markSeen } from './episodes.js';
 import { isLauncher, runLauncher } from './launcher.js';
 import { startShell, isShellPath, bootShell, unmountShell, isLoadingPlayback } from './shell/shell.js';
 import { holdMovieAutostart } from './shell/autostart.js';
+import { startUpdates } from './shell/updates.js';
 
 /* global PLAYER_SRC, tizen, jwplayer */
 (() => {
@@ -80,6 +81,7 @@ import { holdMovieAutostart } from './shell/autostart.js';
     if (pid) markSeen(pid);
     if (/^\/watch\/tv\//.test(location.pathname)) loadPlayer();
     shell = startShell();
+    if (window.top === window) startUpdates(); // standalone app only (no-op under TizenBrew)
     unboot();
     scan(false).then(() => document.dispatchEvent(new Event('fc-scanned')));
     setTimeout(() => activeEl() || move('down'), 800);

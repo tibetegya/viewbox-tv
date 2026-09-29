@@ -8,7 +8,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const here = (p) => new URL(p, import.meta.url).pathname;
-const { version } = JSON.parse(await readFile(here('../package.json'), 'utf8'));
+const { version, viewboxService } = JSON.parse(await readFile(here('../package.json'), 'utf8'));
+// BUNDLE_VERSION can be overridden to test in-app updates (pretend an older build is installed).
+const bundleVersion = process.env.BUNDLE_VERSION || version;
 const out = here('../dist/ViewboxTV.wgt');
 const stage = await mkdtemp(join(tmpdir(), 'viewbox-wgt-'));
 
@@ -20,7 +22,11 @@ await build({
   format: 'cjs',
   target: 'es2017',
   external: ['bufferutil', 'utf-8-validate'], // optional ws speedups
-  define: { MODULE_SRC: JSON.stringify(await readFile(here('../dist/main.js'), 'utf8')) },
+  define: {
+    MODULE_SRC: JSON.stringify(await readFile(here('../dist/main.js'), 'utf8')),
+    BUNDLE_VERSION: JSON.stringify(bundleVersion),
+    SERVICE_VERSION: String(viewboxService || 1),
+  },
   legalComments: 'none',
 });
 // The TV's service Node can be as old as v4 (TizenBrew checks for v4.4.3): compile the bundle down like TizenBrew does.
