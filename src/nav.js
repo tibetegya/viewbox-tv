@@ -80,10 +80,39 @@ export function activeEl() {
   return el && el !== document.body ? el : null;
 }
 
+// Sidebar (shell/sidebar.js): entered only with ← from the content, at the current section's item; inside it ↑/↓ stay
+// in it and → (or Back, main.js) returns to where you were.
+let lastContent = null;
+const sidebarEl = () => document.querySelector('.nv-sidebar');
+export const inSidebar = () => { const s = sidebarEl(); const cur = activeEl(); return !!(s && cur && s.contains(cur)); };
+export function enterSidebar() {
+  const s = sidebarEl();
+  const item = s && (s.querySelector('.nv-side__item--active') || s.querySelector('.nv-side__item'));
+  if (!item) return false;
+  lastContent = activeEl();
+  focusEl(item);
+  return true;
+}
+export function leaveSidebar() {
+  const back = lastContent && lastContent.isConnected ? lastContent : document.querySelector('#fc-app main [tabindex="0"], #fc-app main .jf-card, #fc-app main button, #fc-app main a');
+  if (back) focusEl(back);
+  return !!back;
+}
+
 export function move(dir) {
-  const list = candidates();
+  let list = candidates();
   if (!list.length) return false;
   const cur = activeEl();
+  const side = sidebarEl();
+  if (side) {
+    if (cur && side.contains(cur)) {
+      if (dir === 'left') return true;
+      if (dir === 'right') return leaveSidebar();
+      list = list.filter((c) => side.contains(c.el));
+    } else if (dir !== 'left') {
+      list = list.filter((c) => !side.contains(c.el));
+    }
+  }
   const from = cur && list.some((c) => c.el === cur) ? cur.getBoundingClientRect() : { left: 0, top: -1, width: 0, height: 0 };
   let next = pickNext(from, list, cur ? dir : 'down') ?? (cur ? null : list[0]);
   // Jellyfin-style: ↑/↓ into another row lands on its leftmost visible card, not the one under the old focus.
@@ -91,6 +120,10 @@ export function move(dir) {
   if (row && row !== cur?.closest('.jf-row')) {
     const edge = row.getBoundingClientRect().left;
     next = list.find((c) => c.el.closest('.jf-row') === row && c.rect.left >= edge - 1) || next;
+  }
+  if (side && dir === 'left' && next && side.contains(next.el) && !(cur && side.contains(cur))) {
+    lastContent = cur;
+    next = { el: side.querySelector('.nv-side__item--active') || next.el };
   }
   if (next) focusEl(next.el);
   return !!next;

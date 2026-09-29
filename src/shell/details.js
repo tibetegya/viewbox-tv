@@ -5,7 +5,7 @@ import { watchEntries, img, metaCache } from './data.js';
 // d: parseDetails() of the site's page — fresh, or the cached copy while the page is still loading (shell.js).
 export function detailsView(app, type, pid, d) {
   metaCache.put(pid, {
-    type, title: d.title, year: d.year, slug: d.slug, poster: d.poster, backdrop: d.backdrop,
+    type, title: d.title, year: d.year, slug: d.slug, poster: d.poster, backdrop: d.backdrop, trailer: d.trailer,
     eps: d.seasons.flatMap((s) => s.episodes.map((e) => [e.season, e.episode, e.title, e.thumb])),
   });
   const hist = () => watchEntries().filter((e) => e.pid === pid);

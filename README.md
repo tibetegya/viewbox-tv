@@ -1,7 +1,8 @@
 # Viewbox TV (TizenBrew module)
 
 A TV front end for a streaming site on a Samsung Tizen TV that looks and works like **Jellyfin's TV layout** (measurements in `JELLYFIN_STYLE.md`):
-- **Home** — My Media tiles (Shows, Movies, Favourites), Continue Watching (from your watch history, 5–90 % watched), Next Up, New Episodes, then the site's latest / popular rows.
+- **Sidebar** — a left icon rail (profile, Home, Shows, Movies, Favourites, Search, Settings); press ← from the leftmost item of any screen to open it at the current section.
+- **Home** — an Apple TV–style hero carousel (the site's featured titles; the active one plays its trailer, OK pauses/plays it, ↓ for Watch / Pause), then Continue Watching (from your watch history, 5–90 % watched), Next Up, New Episodes, then the site's latest / popular rows.
 - **Favourites**, **Shows / Movies libraries** (poster grid, sort, endless scroll) and **Search** (on-screen letters, results by Shows / Movies).
 - **Details** — poster, meta line, Play / Resume, Favourite, overview, genres; for series a Next Up card and season posters opening a season episode list.
 - **Player** — Jellyfin-style on-screen controls (timeline, ⏪ ⏯ ⏩ ⏭, subtitles, quality, mute), the next-episode countdown card and "Are you still watching?".

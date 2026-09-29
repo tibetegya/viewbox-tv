@@ -3,7 +3,8 @@
 // time, then refresh in place when the site's page has loaded (stale-while-revalidate).
 import css from './jellyfin.css';
 import { h, header, epLabel, toast } from './ui.js';
-import { homeView, favouritesView, libraryView, searchView, HOME_TABS } from './views.js';
+import { homeView, favouritesView, libraryView, searchView } from './views.js';
+import { sidebar } from './sidebar.js';
 import { detailsView } from './details.js';
 import { settingsView } from './settings.js';
 import { profilesView } from './profileScreen.js';
@@ -16,45 +17,52 @@ import { cache, same } from './cache.js';
 // Each screen: render(app, data), and for screens built from the site's page, the cache key + fresh() parser.
 function route(path) {
   if (path === '/' || path === '/home') {
-    if (location.hash === '#settings') return { render: (app) => settingsView(app), skeleton: 'plain' };
+    if (location.hash === '#settings') return { render: (app) => settingsView(app), skeleton: 'plain', side: 'settings' };
     if (location.hash === '#profiles' || location.hash === '#profiles-manage') return { id: 'profiles', render: (app) => profilesView(app, { manage: location.hash === '#profiles-manage' }) };
     // "Who's watching?" first when the app opens with 2+ profiles (Nuvio-style); drawn in place of Home.
     if (!location.hash && !wasChosen()) {
       if (loadProfiles().length >= 2) return { id: 'picker', render: (app) => profilesView(app, { onDone: () => redraw() }) };
       markChosen(); // one profile (or none): nothing to pick this session
     }
-    return { key: 'home', fresh: () => parseHome(document), render: homeView, skeleton: 'home' };
+    // The site's carousel is a different pick on every load: a changed hero alone doesn't redraw Home (it's saved for next time).
+    return { key: 'home', fresh: () => parseHome(document), render: homeView, skeleton: 'home', side: 'home', same: (a, b) => same({ ...a, hero: null }, { ...b, hero: null }) };
   }
-  if (/^\/mylists\//.test(path)) return { render: (app) => favouritesView(app), skeleton: 'grid' };
+  if (/^\/mylists\//.test(path)) return { render: (app) => favouritesView(app), skeleton: 'grid', side: 'favourites' };
   const lib = /^\/show\/(tvshows|movies)/.exec(path);
   if (lib) {
     const kind = lib[1] === 'movies' ? 'movies' : 'tv';
     const params = new URLSearchParams(location.search);
-    if ((params.get('sort') || 'latest') !== 'latest' || params.get('page')) return { render: (app) => libraryView(app, kind, null), skeleton: 'grid' };
-    return { key: `page:${kind}`, fresh: () => parseLibraryPage(document, kind), render: (app, data) => libraryView(app, kind, data), skeleton: 'grid' };
+    if ((params.get('sort') || 'latest') !== 'latest' || params.get('page')) return { render: (app) => libraryView(app, kind, null), skeleton: 'grid', side: kind };
+    return { key: `page:${kind}`, fresh: () => parseLibraryPage(document, kind), render: (app, data) => libraryView(app, kind, data), skeleton: 'grid', side: kind };
   }
   const det = /^\/watch\/(tv|movie)\/(\d+)/.exec(path);
   if (det) return { key: `details:${det[2]}`, fresh: () => parseDetails(document, document.head.innerHTML), render: (app, d) => detailsView(app, det[1], det[2], d), skeleton: 'details' };
-  if (/^\/search/.test(path)) return { render: (app) => searchView(app), skeleton: 'plain' };
+  if (/^\/search/.test(path)) return { render: (app) => searchView(app), skeleton: 'plain', side: 'search' };
   return null; // login, account, … keep the site's own page
 }
 
 export const isShellPath = (path) => !!route(path);
 
 // ---- skeletons (first visit): the shape of the screen while the site's page loads -------------------------------
-function skeleton(kind) {
+function skeleton(kind, side) {
   const bar = (width) => h('div', { class: 'jf-skel jf-skel--text', style: { width } });
   const skelCard = (shape) => h('div', { class: `jf-card jf-card--${shape} jf-skel-card` }, h('div', { class: 'jf-card__img jf-skel' }), bar('60%'));
   const row = (n, shape) => h('section', { class: 'jf-section' }, h('div', { class: 'jf-section__title' }, bar('240px')),
     h('div', { class: 'jf-row jf-row--skel' }, Array.from({ length: n }, () => skelCard(shape))));
-  if (kind === 'home') return [header({ tabs: HOME_TABS, active: 'home' }), h('main', { class: 'jf-main' }, row(3, 'landscape'), row(4, 'landscape'), row(8, 'portrait'), row(8, 'portrait'))];
-  if (kind === 'grid') return [header({ title: ' ' }), h('main', { class: 'jf-main' }, h('div', { class: 'jf-grid' }, Array.from({ length: 14 }, () => skelCard('portrait'))))];
+  const rail = (...kids) => [sidebar(side), h('main', { class: 'jf-main jf-main--rail' }, ...kids)];
+  if (kind === 'home') {
+    const hero = h('section', { class: 'ah-hero' }, h('div', { class: 'ah-track' },
+      h('div', { class: 'ah-item ah-item--active' }, h('div', { class: 'ah-media jf-skel' })),
+      h('div', { class: 'ah-item' }, h('div', { class: 'ah-media jf-skel' })), h('div', { class: 'ah-item' }, h('div', { class: 'ah-media jf-skel' }))));
+    return rail(hero, row(4, 'landscape'), row(8, 'portrait'));
+  }
+  if (kind === 'grid') return rail(h('div', { class: 'jf-pagetitle' }, bar('220px')), h('div', { class: 'jf-grid' }, Array.from({ length: 14 }, () => skelCard('portrait'))));
   if (kind === 'details') {
     return [header({ title: ' ' }), h('main', { class: 'jf-main' }, h('div', { class: 'jf-details' },
       h('div', { class: 'jf-details__poster jf-skel' }),
       h('div', { class: 'jf-details__body jf-skel-body' }, bar('40%'), bar('25%'), bar('180px'), bar('90%'), bar('85%'), bar('60%'))))];
   }
-  return [header({ title: ' ' })];
+  return side ? rail() : [];
 }
 
 // ---- playback loading screen: an episode URL (or a movie with #play) plays on load; show this until it does -----
@@ -110,7 +118,7 @@ function draw(r) {
     if (r.id) { r.render(app); drawn = { id: r.id }; return; }
   } catch (e) { app.replaceChildren(); }
   drawn = null;
-  app.append(...skeleton(r.skeleton));
+  app.append(...skeleton(r.skeleton, r.side));
 }
 
 // After "Who's watching?" (same profile kept): show Home in place — from the page if it's loaded, else as at boot.
@@ -150,7 +158,7 @@ export function startShell() {
   const fresh = r.key ? r.fresh() : undefined;
   if (r.key) cache.set(r.key, fresh);
   const signedIn = document.querySelector('a[href="/account"]') ? '1' : '0';
-  const upToDate = drawn && drawn.id === r.id && (r.key ? same(drawn.data, fresh) && drawn.signedIn === signedIn : true);
+  const upToDate = drawn && drawn.id === r.id && (r.key ? (r.same || same)(drawn.data, fresh) && drawn.signedIn === signedIn : true);
   if (!upToDate) {
     const where = focusPath();
     const top = app.scrollTop;

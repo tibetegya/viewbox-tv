@@ -2,7 +2,7 @@
 // navigation, and the extension's next-episode card + "Are you still watching?" (content/player.js, reused as-is).
 // TizenBrew injects this into every page of its window: the launcher page (pick the site) and the site itself.
 import css from './tv.css';
-import { move, activeEl } from './nav.js';
+import { move, activeEl, inSidebar, leaveSidebar } from './nav.js';
 import { keyHook } from './shell/ui.js';
 import { scan, markSeen } from './episodes.js';
 import { isLauncher, runLauncher } from './launcher.js';
@@ -134,7 +134,8 @@ import { holdMovieAutostart } from './shell/autostart.js';
       e.preventDefault();
       e.stopPropagation();
       if (inOverlay()) { overlayRoot().querySelector('.cancel')?.click(); return; } // Up Next card: "Not now" / "Close"
-      if (shell && shell.osd.visible()) shell.osd.hide();
+      if (inSidebar()) leaveSidebar();
+      else if (shell && shell.osd.visible()) shell.osd.hide();
       else if (playerOpen()) closePlayer();
       else history.back();
     } else if (PLAY_PAUSE.includes(code)) {

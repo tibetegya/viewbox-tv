@@ -75,17 +75,51 @@
     while ((_a = el == null ? void 0 : el.shadowRoot) == null ? void 0 : _a.activeElement) el = el.shadowRoot.activeElement;
     return el && el !== document.body ? el : null;
   }
+  var lastContent = null;
+  var sidebarEl = () => document.querySelector(".nv-sidebar");
+  var inSidebar = () => {
+    const s = sidebarEl();
+    const cur = activeEl();
+    return !!(s && cur && s.contains(cur));
+  };
+  function enterSidebar() {
+    const s = sidebarEl();
+    const item = s && (s.querySelector(".nv-side__item--active") || s.querySelector(".nv-side__item"));
+    if (!item) return false;
+    lastContent = activeEl();
+    focusEl(item);
+    return true;
+  }
+  function leaveSidebar() {
+    const back = lastContent && lastContent.isConnected ? lastContent : document.querySelector('#fc-app main [tabindex="0"], #fc-app main .jf-card, #fc-app main button, #fc-app main a');
+    if (back) focusEl(back);
+    return !!back;
+  }
   function move(dir) {
     var _a;
-    const list = candidates();
+    let list = candidates();
     if (!list.length) return false;
     const cur = activeEl();
+    const side = sidebarEl();
+    if (side) {
+      if (cur && side.contains(cur)) {
+        if (dir === "left") return true;
+        if (dir === "right") return leaveSidebar();
+        list = list.filter((c) => side.contains(c.el));
+      } else if (dir !== "left") {
+        list = list.filter((c) => !side.contains(c.el));
+      }
+    }
     const from = cur && list.some((c) => c.el === cur) ? cur.getBoundingClientRect() : { left: 0, top: -1, width: 0, height: 0 };
     let next = (_a = pickNext(from, list, cur ? dir : "down")) != null ? _a : cur ? null : list[0];
     const row = (dir === "up" || dir === "down") && (next == null ? void 0 : next.el.closest(".jf-row"));
     if (row && row !== (cur == null ? void 0 : cur.closest(".jf-row"))) {
       const edge = row.getBoundingClientRect().left;
       next = list.find((c) => c.el.closest(".jf-row") === row && c.rect.left >= edge - 1) || next;
+    }
+    if (side && dir === "left" && next && side.contains(next.el) && !(cur && side.contains(cur))) {
+      lastContent = cur;
+      next = { el: side.querySelector(".nv-side__item--active") || next.el };
     }
     if (next) focusEl(next.el);
     return !!next;
@@ -216,14 +250,23 @@
   }
   function parseHero(root) {
     return [...root.querySelectorAll(".carousel-item")].map((s) => {
-      var _a, _b;
+      var _a, _b, _c, _d;
       const cap = s.querySelector(".carousel-caption-container[data-href]");
       const bg = /\/t\/p\/original\/([A-Za-z0-9_-]+\.jpg)/.exec(s.getAttribute("style") || "");
-      return cap && {
-        href: cap.dataset.href,
-        title: ((_a = cap.querySelector(".font-weight-normal")) == null ? void 0 : _a.textContent.trim()) || "",
-        overview: ((_b = cap.querySelector(".t16")) == null ? void 0 : _b.textContent.trim()) || "",
-        backdrop: bg ? bg[1] : null
+      if (!cap) return null;
+      const href = cap.dataset.href;
+      const [, type, pid] = /^\/watch\/(tv|movie)\/(\d+)/.exec(href) || [];
+      const facts = ((_a = cap.querySelector(".t14 div")) == null ? void 0 : _a.textContent.replace(/\s+/g, " ").trim()) || "";
+      return {
+        href,
+        pid,
+        type: type === "movie" ? "movie" : "tv",
+        title: ((_b = cap.querySelector(".font-weight-normal")) == null ? void 0 : _b.textContent.trim()) || "",
+        overview: ((_c = cap.querySelector(".t16")) == null ? void 0 : _c.textContent.trim()) || "",
+        backdrop: bg ? bg[1] : null,
+        year: (/\b(\d{4})\b/.exec(facts) || [])[1] || "",
+        contentRating: facts.replace(/\b\d{4}\b/, "").trim(),
+        rating: (/Rated:\s*([\d.]+)/.exec(((_d = cap.querySelector(".t14")) == null ? void 0 : _d.textContent) || "") || [])[1] || ""
       };
     }).filter(Boolean);
   }
@@ -233,7 +276,7 @@
   }
   var lastPage = (root) => Math.max(1, ...[...root.querySelectorAll(".searchnav[data-p]")].map((a) => +a.dataset.p || 1));
   function parseDetails(doc, html) {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     const ov = doc.querySelector(".section-watch-overview");
     const badge = (title) => {
       var _a2;
@@ -269,7 +312,8 @@
       genres: links("genre"),
       network: links("network")[0] || "",
       seasons,
-      similar: parseCards(doc.querySelector(".section-watch-recomm") || doc.createElement("div"))
+      similar: parseCards(doc.querySelector(".section-watch-recomm") || doc.createElement("div")),
+      trailer: ((_f = (ov == null ? void 0 : ov.querySelector("[data-ytlink]")) || doc.querySelector("[data-ytlink]")) == null ? void 0 : _f.dataset.ytlink) || null
     };
   }
   var toDoc = (html) => new DOMParser().parseFromString(html, "text/html");
@@ -1052,7 +1096,94 @@ html.fc-playing #fc-loading { display: none; }
 /* header avatar + settings */
 .jf-profilebtn__avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 600 20px/1 var(--jf-font); color: #fff; }
 .jf-settings__avatar { width: 48px; height: 48px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; color: #fff; margin-left: 16px; }
+
+/* ---- Left sidebar (Nuvio-style rail; expands while focused) ---- */
+.jf-main--rail { padding-left: 96px; }
+.nv-sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 30; width: 96px; display: flex; flex-direction: column; padding: 28px 16px; box-sizing: border-box; overflow: hidden;
+  background: linear-gradient(90deg, rgba(13, 13, 13, .92) 0, rgba(13, 13, 13, .78) 70%, rgba(13, 13, 13, 0) 100%); transition: width .22s cubic-bezier(.22, 1, .36, 1), background .22s; }
+.nv-sidebar:focus-within { width: 360px; background: linear-gradient(90deg, rgba(10, 10, 10, .98) 0, rgba(10, 10, 10, .96) 72%, rgba(10, 10, 10, 0) 100%); }
+.nv-side__items { margin: auto 0; display: flex; flex-direction: column; gap: 12px; }
+.nv-side__item { display: flex; align-items: center; gap: 22px; height: 64px; border-radius: 18px; color: #8f8f8f; white-space: nowrap; }
+.nv-side__icon { flex: none; width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center; }
+.nv-side__icon .jf-icon { width: 34px; height: 34px; fill: currentColor; }
+.nv-side__item--active { color: #fff; }
+.nv-side__item--active .nv-side__icon { background: #fff; color: #111; }
+.nv-side__label { font: 600 26px/1 var(--jf-font); opacity: 0; transition: opacity .18s; }
+.nv-sidebar:focus-within .nv-side__label { opacity: 1; }
+.nv-side__item:focus { color: #fff; background: rgba(255, 255, 255, .14); }
+.nv-side__item:focus .nv-side__icon { transform: scale(1.06); }
+.nv-side__avatar { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 600 24px/1 var(--jf-font); color: #fff; }
+.jf-corner { position: fixed; top: 22px; right: 40px; z-index: 25; display: flex; align-items: center; gap: 18px; text-shadow: 0 1px 6px rgba(0, 0, 0, .8); }
+.jf-corner .jf-clock { font-size: 24px; margin: 0; }
+.jf-pagetitle--rail { margin-left: 96px !important; }
+.jf-pagetitle { margin: 0; padding: 36px 0 8px var(--jf-pad); font: 600 40px/1.2 var(--jf-font); color: var(--jf-text); }
+
+/* ---- Home hero (Apple TV\u2013style): active 16:9, others 4:3, half the screen tall ---- */
+.ah-hero { position: relative; overflow: hidden; padding: 44px 0 4px var(--jf-pad); --ah-h: 50vh; --ah-gap: 24px; }
+.ah-track { display: flex; gap: var(--ah-gap); height: var(--ah-h); transform: translateX(calc(var(--i, 0) * -1 * (var(--ah-h) * 4 / 3 + var(--ah-gap)))); transition: transform .45s cubic-bezier(.22, 1, .36, 1); }
+.ah-item { position: relative; flex: none; height: 100%; width: calc(var(--ah-h) * 4 / 3); transition: width .45s cubic-bezier(.22, 1, .36, 1); }
+.ah-item--active { width: calc(var(--ah-h) * 16 / 9); }
+.ah-media { position: absolute; inset: 0; border-radius: 16px; overflow: hidden; background: #1a1a1a center / cover no-repeat; }
+.ah-item:not(.ah-item--active) .ah-media { filter: brightness(.55); }
+.ah-media::after { content: ''; position: absolute; inset: 0; pointer-events: none; transition: opacity .6s;
+  background: linear-gradient(0deg, rgba(0, 0, 0, .88) 0, rgba(0, 0, 0, .45) 38%, rgba(0, 0, 0, 0) 68%), linear-gradient(90deg, rgba(0, 0, 0, .55) 0, rgba(0, 0, 0, 0) 55%); }
+.ah-item:not(.ah-item--active) .ah-media::after { opacity: 0; }
+.ah-item--playing .ah-media::after { opacity: 0; }
+.ah-media:focus { box-shadow: 0 0 0 4px var(--jf-focus), 0 18px 50px rgba(0, 0, 0, .6); }
+.ah-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; pointer-events: none; opacity: 0; transform: scale(1.2); transition: opacity .8s; }
+.ah-item--video .ah-video { opacity: 1; }
+.ah-info { position: absolute; left: 56px; right: 56px; bottom: 44px; display: none; transition: opacity .5s; }
+.ah-item--active .ah-info { display: block; }
+.ah-item--playing .ah-info { opacity: 0; }
+.ah-item--playing .ah-info:focus-within { opacity: 1; }
+.ah-title { font: 700 58px/1.08 var(--jf-font); color: #fff; letter-spacing: -.5px; text-shadow: 0 2px 16px rgba(0, 0, 0, .5); max-width: 80%; }
+.ah-meta { margin-top: 12px; font: 600 22px/1.3 var(--jf-font); color: rgba(255, 255, 255, .85); }
+.ah-overview { margin-top: 10px; max-width: 62%; font: 400 22px/1.4 var(--jf-font); color: rgba(255, 255, 255, .85); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ah-buttons { display: flex; gap: 16px; margin-top: 24px; }
+.ah-btn { height: 60px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px !important; transition: transform .15s, background .15s; }
+.ah-btn .jf-icon { width: 30px; height: 30px; fill: currentColor; }
+.ah-watch { gap: 10px; padding: 0 34px !important; background: rgba(255, 255, 255, .92) !important; color: #111 !important; font: 700 24px/1 var(--jf-font) !important; }
+.ah-pause { width: 60px; background: rgba(255, 255, 255, .22) !important; color: #fff !important; }
+.ah-btn:focus { transform: scale(1.08); background: #fff !important; color: #111 !important; box-shadow: 0 0 0 4px var(--jf-focus); }
+.ah-dots { display: flex; gap: 10px; margin: 18px 0 0; }
+.ah-dot { width: 10px; height: 10px; border-radius: 5px; background: rgba(255, 255, 255, .3); transition: width .3s, background .3s; }
+.ah-dot--on { width: 30px; background: #fff; }
 `;
+
+  // src/shell/sidebar.js
+  var ITEMS = [
+    { id: "home", label: "Home", icon: "home", href: "/home" },
+    { id: "tv", label: "Shows", icon: "tv", href: "/show/tvshows" },
+    { id: "movies", label: "Movies", icon: "movie", href: "/show/movies" },
+    { id: "favourites", label: "Favourites", icon: "heart", href: "/mylists/favorites" },
+    { id: "search", label: "Search", icon: "search", href: "/search/" },
+    { id: "settings", label: "Settings", icon: "settings", href: "/home#settings" }
+  ];
+  function sidebar(active) {
+    const p = currentProfile();
+    const profile = h(
+      "a",
+      { class: "nv-side__item nv-side__profile", href: "/home#profiles", "aria-label": p ? `${p.name} \u2014 switch profile` : "Profiles" },
+      h("span", { class: "nv-side__icon" }, p ? h("span", { class: "nv-side__avatar", style: { background: p.color } }, initialOf(p.name)) : icon("person")),
+      h("span", { class: "nv-side__label" }, p ? p.name : "Profiles")
+    );
+    const items = ITEMS.map((it) => h(
+      "a",
+      { class: `nv-side__item${it.id === active ? " nv-side__item--active" : ""}`, href: it.href, "aria-label": it.label, "data-side": it.id },
+      h("span", { class: "nv-side__icon" }, icon(it.icon)),
+      h("span", { class: "nv-side__label" }, it.label)
+    ));
+    return h("nav", { class: "nv-sidebar", "aria-label": "Menu" }, profile, h("div", { class: "nv-side__items" }, items));
+  }
+  function railLayout(app2, active, main, title) {
+    main.classList.add("jf-main--rail");
+    app2.append(
+      sidebar(active),
+      h("div", { class: "jf-corner" }, !isSignedIn() && h("a", { class: "jf-signin", href: "/home#settings" }, "Sign in"), clock()),
+      title ? h("h1", { class: "jf-pagetitle jf-pagetitle--rail" }, title) : "",
+      main
+    );
+  }
 
   // src/shell/meta.js
   var TTL = 24 * 36e5;
@@ -1061,7 +1192,7 @@ html.fc-playing #fc-loading { display: none; }
     queue2 = queue2.catch(() => {
     }).then(async () => {
       const cache2 = metaCache.all();
-      const todo = items.filter((it) => !cache2[it.pid] || Date.now() - (cache2[it.pid].ts || 0) > TTL).slice(0, max);
+      const todo = items.filter((it) => !cache2[it.pid] || !("trailer" in cache2[it.pid]) || Date.now() - (cache2[it.pid].ts || 0) > TTL).slice(0, max);
       for (const it of todo) {
         try {
           const d = await details(it.type, it.pid);
@@ -1072,6 +1203,7 @@ html.fc-playing #fc-loading { display: none; }
             slug: d.slug,
             poster: d.poster,
             backdrop: d.backdrop,
+            trailer: d.trailer,
             eps: d.seasons.flatMap((s) => s.episodes.map((e) => [e.season, e.episode, e.title, e.thumb]))
           });
           if (onEach) onEach();
@@ -1087,31 +1219,216 @@ html.fc-playing #fc-loading { display: none; }
   var findEp = (m, s, e) => epsOf(m).find((x) => x.season === s && x.episode === e);
   var hrefOf = (type, pid, m, s, e) => `/watch/${type === "movie" ? "movie" : "tv"}/${pid}/${(m == null ? void 0 : m.slug) || "x"}${s ? `/season/${s}/episode/${e}` : ""}`;
 
+  // src/shell/hero.js
+  var DWELL_MS = 1200;
+  var SOUND_CHECK_MS = 3500;
+  var trailerOf = (it) => {
+    const m = metaCache.all()[it.pid];
+    return m && "trailer" in m ? m.trailer || null : void 0;
+  };
+  var post = (frame, func, args = []) => {
+    try {
+      frame.contentWindow.postMessage(JSON.stringify({ event: "command", func, args, id: 1, channel: "widget" }), "*");
+    } catch (e) {
+    }
+  };
+  function heroView(all) {
+    const items = all.filter((it) => it.pid);
+    let idx = 0;
+    let player = null;
+    let dwell = null;
+    const els = items.map((it) => {
+      const media = h("div", { class: "ah-media", "aria-label": `${it.title}. OK to play or pause the trailer`, style: it.backdrop ? { backgroundImage: `url("${img(it.backdrop, "w1280")}")` } : null });
+      const pauseBtn = h("button", { class: "ah-btn ah-pause", "aria-label": "Pause trailer", onclick: () => toggle() }, icon("pause"));
+      const watch = h("button", { class: "ah-btn ah-watch", onclick: () => watchItem(it) }, icon("play"), h("span", {}, "Watch"));
+      const meta = [it.year, it.rating && `\u2605 ${it.rating}`, it.contentRating !== "NR" && it.contentRating].filter(Boolean).join("  \xB7  ");
+      const info = h(
+        "div",
+        { class: "ah-info" },
+        h("div", { class: "ah-title" }, it.title),
+        meta && h("div", { class: "ah-meta" }, meta),
+        it.overview && h("div", { class: "ah-overview" }, it.overview),
+        h("div", { class: "ah-buttons" }, watch, pauseBtn)
+      );
+      const item = h("div", { class: "ah-item" }, media, info);
+      return { it, item, media, info, watch, pauseBtn };
+    });
+    const track = h("div", { class: "ah-track" }, els.map((e) => e.item));
+    const dots = h("div", { class: "ah-dots" }, items.map(() => h("span", { class: "ah-dot" })));
+    const root = h("section", { class: "ah-hero", "aria-label": "Featured" }, track, dots);
+    const cur = () => els[idx];
+    function watchItem(it) {
+      stop();
+      location.assign(it.type === "movie" ? `${it.href}#play` : it.href);
+    }
+    function stop() {
+      clearTimeout(dwell);
+      if (!player) return;
+      clearTimeout(player.soundTimer);
+      player.frame.remove();
+      player = null;
+    }
+    function paint() {
+      const e = cur();
+      const playing = !!player && player.state === 1 && !player.userPaused;
+      e.item.classList.toggle("ah-item--video", !!player && player.started);
+      e.item.classList.toggle("ah-item--playing", playing);
+      e.pauseBtn.replaceChildren(icon(playing ? "pause" : "play"));
+      e.pauseBtn.setAttribute("aria-label", playing ? "Pause trailer" : "Play trailer");
+    }
+    function load2() {
+      stop();
+      const e = cur();
+      const id = trailerOf(e.it);
+      e.pauseBtn.hidden = id === null;
+      paint();
+      if (id === void 0) {
+        ensureMeta([{ pid: e.it.pid, type: e.it.type }], 1).then(() => {
+          if (cur() === e && !player) load2();
+        });
+        return;
+      }
+      if (!id) return;
+      dwell = setTimeout(() => start(e, id), DWELL_MS);
+    }
+    function start(e, id, muted = false) {
+      const src = `https://www.youtube.com/embed/${id}?autoplay=1&mute=${muted ? 1 : 0}&controls=0&disablekb=1&fs=0&modestbranding=1&rel=0&iv_load_policy=3&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
+      const frame = h("iframe", { class: "ah-video", src, allow: "autoplay; encrypted-media", frameborder: "0", tabindex: "-1", title: `${e.it.title} trailer` });
+      frame.addEventListener("load", () => post(frame, "addEventListener", ["onStateChange"]));
+      frame.addEventListener("load", () => {
+        try {
+          frame.contentWindow.postMessage(JSON.stringify({ event: "listening", id: 1, channel: "widget" }), "*");
+        } catch (err) {
+        }
+      });
+      e.media.append(frame);
+      player = { frame, state: -1, userPaused: false, muted, id };
+      if (!muted) player.soundTimer = setTimeout(() => {
+        if (player && player.frame === frame && player.state !== 1) {
+          post(frame, "mute");
+          post(frame, "playVideo");
+          player.muted = true;
+        }
+      }, SOUND_CHECK_MS);
+    }
+    const onMessage = (ev) => {
+      if (!player || ev.source !== player.frame.contentWindow) return;
+      let d;
+      try {
+        d = typeof ev.data === "string" ? JSON.parse(ev.data) : ev.data;
+      } catch (err) {
+        return;
+      }
+      if (!d) return;
+      const state = d.event === "onStateChange" ? d.info : d.event === "infoDelivery" && d.info && typeof d.info.playerState === "number" ? d.info.playerState : null;
+      if (d.event === "onError") {
+        cur().pauseBtn.hidden = true;
+        stop();
+        paint();
+        return;
+      }
+      if (state === null || state === player.state) return;
+      player.state = state;
+      if (state === 1) player.started = true;
+      if (state === 1 && player.userPaused) post(player.frame, "pauseVideo");
+      if (state === 0) {
+        post(player.frame, "seekTo", [0, true]);
+        post(player.frame, "playVideo");
+      }
+      paint();
+    };
+    window.addEventListener("message", onMessage);
+    function toggle() {
+      if (!player) {
+        const id = trailerOf(cur().it);
+        if (id) {
+          clearTimeout(dwell);
+          start(cur(), id);
+        }
+        return;
+      }
+      player.userPaused = !player.userPaused;
+      post(player.frame, player.userPaused ? "pauseVideo" : "playVideo");
+      paint();
+    }
+    function select(i, focus = true) {
+      idx = Math.max(0, Math.min(els.length - 1, i));
+      els.forEach((e, j) => {
+        const on = j === idx;
+        e.item.classList.toggle("ah-item--active", on);
+        e.item.classList.remove("ah-item--playing", "ah-item--video");
+        if (on) {
+          e.media.setAttribute("role", "button");
+          e.media.setAttribute("tabindex", "0");
+        } else {
+          e.media.removeAttribute("role");
+          e.media.removeAttribute("tabindex");
+        }
+        dots.children[j].classList.toggle("ah-dot--on", on);
+      });
+      track.style.setProperty("--i", idx);
+      if (focus) cur().media.focus({ preventScroll: true });
+      load2();
+    }
+    keyHook.fn = (e) => {
+      if (!root.isConnected) {
+        keyHook.fn = null;
+        window.removeEventListener("message", onMessage);
+        stop();
+        return false;
+      }
+      if (player && player.muted && player.state === 1) {
+        post(player.frame, "unMute");
+        player.muted = false;
+      }
+      if (document.activeElement !== cur().media) return false;
+      const k = e.keyCode;
+      if (k === 37) {
+        if (idx > 0) select(idx - 1);
+        else enterSidebar();
+        return true;
+      }
+      if (k === 39) {
+        if (idx < els.length - 1) select(idx + 1);
+        return true;
+      }
+      if (k === 13) {
+        toggle();
+        return true;
+      }
+      if (k === 40) {
+        cur().watch.focus({ preventScroll: true });
+        return true;
+      }
+      return k === 38;
+    };
+    if (typeof IntersectionObserver === "function") {
+      new IntersectionObserver(([entry]) => {
+        if (!player) return;
+        if (!entry.isIntersecting) post(player.frame, "pauseVideo");
+        else if (!player.userPaused) post(player.frame, "playVideo");
+      }, { threshold: 0.35 }).observe(root);
+    }
+    select(0, false);
+    ensureMeta(items.map((it) => ({ pid: it.pid, type: it.type })), items.length);
+    return root;
+  }
+
   // src/shell/views.js
-  var HOME_TABS = [{ id: "home", label: "Home", href: "/home" }, { id: "favourites", label: "Favourites", href: "/mylists/favorites" }];
   var favoritePids2 = (t) => Object.keys(localStorage).filter((k) => k.startsWith(`bm:${t}:`)).map((k) => k.split(":")[2]);
   var progress = null;
   var prog = () => progress || (progress = progressIndex(watchEntries()));
   var posterCard = (c) => card({ href: c.href, image: c.poster, title: c.title, sub: c.season ? epLabel(c.season, c.episode) : c.year, progress: progressOf(prog(), c) });
   var focusFirst = (root) => setTimeout(() => {
     var _a;
-    if (!document.activeElement || document.activeElement === document.body) (_a = root.querySelector(".jf-card, button, a")) == null ? void 0 : _a.focus({ preventScroll: true });
+    if (!document.activeElement || document.activeElement === document.body) (_a = root.querySelector('.ah-media[tabindex="0"]') || root.querySelector(".jf-card, button, a")) == null ? void 0 : _a.focus({ preventScroll: true });
   }, 0);
   function homeView(app2, site) {
     const main = h("main", { class: "jf-main" });
-    app2.append(header({ tabs: HOME_TABS, active: "home" }), main);
-    const backdropOf = (type) => {
-      var _a;
-      return (_a = site.hero.find((x) => x.href.includes(`/${type}/`) && x.backdrop)) == null ? void 0 : _a.backdrop;
-    };
-    const media = section("My Media", [
-      card({ href: "/show/tvshows", image: backdropOf("tv"), imageSize: "w780", title: "Shows", shape: "landscape" }),
-      card({ href: "/show/movies", image: backdropOf("movie"), imageSize: "w780", title: "Movies", shape: "landscape" }),
-      card({ href: "/mylists/favorites", image: site.hero.map((x) => x.backdrop).filter((b) => b && b !== backdropOf("tv") && b !== backdropOf("movie"))[0], imageSize: "w780", title: "Favourites", shape: "landscape" })
-    ]);
+    railLayout(app2, "home", main);
     const personal = h("div", { class: "jf-personal" });
     main.append(
-      media,
+      site.hero.some((x) => x.pid) ? heroView(site.hero) : "",
       personal,
       site.latest.length ? section("Latest Episodes & Movies", site.latest.map(posterCard)) : "",
       site.popular.length ? section("Popular", site.popular.map(posterCard)) : "",
@@ -1169,7 +1486,7 @@ html.fc-playing #fc-loading { display: none; }
   }
   function favouritesView(app2) {
     const main = h("main", { class: "jf-main" });
-    app2.append(header({ tabs: HOME_TABS, active: "favourites" }), main);
+    railLayout(app2, "favourites", main, "Favourites");
     const settingsLink = (text) => h("p", { class: "jf-empty" }, text, " ", h("a", { class: "jf-button jf-button--inline", href: "/home#settings" }, "Open Settings"));
     let loading2 = true;
     const itemsNow = () => [...favoritePids2("t").map((pid) => ({ pid, type: "tv" })), ...favoritePids2("m").map((pid) => ({ pid, type: "movie" }))];
@@ -1215,7 +1532,6 @@ html.fc-playing #fc-loading { display: none; }
     let page = 1;
     let lastPage2 = first ? first.lastPage : 1;
     let loading2 = false;
-    const tabs = [{ id: "tv", label: "Shows", href: "/show/tvshows" }, { id: "movies", label: "Movies", href: "/show/movies" }];
     const grid = h("div", { class: "jf-grid" });
     const count = h("span", { class: "jf-toolbar__count" });
     const sortBtn = h("button", { class: "jf-iconbtn jf-toolbar__sort", "aria-label": "Sort", onclick: () => {
@@ -1225,7 +1541,7 @@ html.fc-playing #fc-loading { display: none; }
       reload();
     } }, icon("sort"), h("span", {}, ""));
     const main = h("main", { class: "jf-main" }, h("div", { class: "jf-toolbar" }, count, sortBtn), grid);
-    app2.append(header({ tabs, active: kind, title: kind === "movies" ? "Movies" : "Shows" }), main);
+    railLayout(app2, kind, main, kind === "movies" ? "Movies" : "Shows");
     const add = (cards) => grid.append(...cards.map(posterCard));
     const label = () => {
       count.textContent = `1-${grid.children.length} of ${lastPage2 > page ? `${lastPage2 * 24}+` : grid.children.length}`;
@@ -1289,7 +1605,7 @@ html.fc-playing #fc-loading { display: none; }
       h("div", { class: "jf-keys__row" }, "0123456789".split("").map((d) => h("button", { class: "jf-key", onclick: () => type(d) }, d)))
     );
     const main = h("main", { class: "jf-main jf-search" }, h("div", { class: "jf-search__bar" }, icon("search", "jf-search__icon"), input), keys, results);
-    app2.append(header({ title: "Search" }), main);
+    railLayout(app2, "search", main);
     function type(ch) {
       input.value += ch.toLowerCase();
       changed();
@@ -1348,6 +1664,7 @@ html.fc-playing #fc-loading { display: none; }
       slug: d.slug,
       poster: d.poster,
       backdrop: d.backdrop,
+      trailer: d.trailer,
       eps: d.seasons.flatMap((s) => s.episodes.map((e) => [e.season, e.episode, e.title, e.thumb]))
     });
     const hist = () => watchEntries().filter((e) => e.pid === pid);
@@ -1499,7 +1816,7 @@ html.fc-playing #fc-loading { display: none; }
   var field = (label, input) => h("label", { class: "jf-field" }, h("span", { class: "jf-field__label" }, label), input);
   function settingsView(app2) {
     const main = h("main", { class: "jf-main jf-settings" });
-    app2.append(header({ title: "Settings" }), main);
+    railLayout(app2, "settings", main, "Settings");
     const signedIn = isSignedIn();
     const email = h("input", { class: "jf-input", type: "email", autocomplete: "username", placeholder: "VIP email" });
     const password = h("input", { class: "jf-input", type: "password", autocomplete: "current-password", placeholder: "Password" });
@@ -1568,7 +1885,7 @@ html.fc-playing #fc-loading { display: none; }
       "section",
       { class: "jf-settings__section" },
       h("h2", { class: "jf-section__title" }, "About"),
-      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.5.0" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
+      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.6.0" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
       h("p", { class: "jf-settings__about" }, navigator.userAgent)
     );
     main.append(account, sync, playback, about);
@@ -2074,29 +2391,29 @@ html.fc-playing #fc-loading { display: none; }
   // src/shell/shell.js
   function route(path) {
     if (path === "/" || path === "/home") {
-      if (location.hash === "#settings") return { render: (app2) => settingsView(app2), skeleton: "plain" };
+      if (location.hash === "#settings") return { render: (app2) => settingsView(app2), skeleton: "plain", side: "settings" };
       if (location.hash === "#profiles" || location.hash === "#profiles-manage") return { id: "profiles", render: (app2) => profilesView(app2, { manage: location.hash === "#profiles-manage" }) };
       if (!location.hash && !wasChosen()) {
         if (loadProfiles().length >= 2) return { id: "picker", render: (app2) => profilesView(app2, { onDone: () => redraw() }) };
         markChosen();
       }
-      return { key: "home", fresh: () => parseHome(document), render: homeView, skeleton: "home" };
+      return { key: "home", fresh: () => parseHome(document), render: homeView, skeleton: "home", side: "home", same: (a, b) => same({ ...a, hero: null }, { ...b, hero: null }) };
     }
-    if (/^\/mylists\//.test(path)) return { render: (app2) => favouritesView(app2), skeleton: "grid" };
+    if (/^\/mylists\//.test(path)) return { render: (app2) => favouritesView(app2), skeleton: "grid", side: "favourites" };
     const lib = /^\/show\/(tvshows|movies)/.exec(path);
     if (lib) {
       const kind = lib[1] === "movies" ? "movies" : "tv";
       const params = new URLSearchParams(location.search);
-      if ((params.get("sort") || "latest") !== "latest" || params.get("page")) return { render: (app2) => libraryView(app2, kind, null), skeleton: "grid" };
-      return { key: `page:${kind}`, fresh: () => parseLibraryPage(document, kind), render: (app2, data) => libraryView(app2, kind, data), skeleton: "grid" };
+      if ((params.get("sort") || "latest") !== "latest" || params.get("page")) return { render: (app2) => libraryView(app2, kind, null), skeleton: "grid", side: kind };
+      return { key: `page:${kind}`, fresh: () => parseLibraryPage(document, kind), render: (app2, data) => libraryView(app2, kind, data), skeleton: "grid", side: kind };
     }
     const det = /^\/watch\/(tv|movie)\/(\d+)/.exec(path);
     if (det) return { key: `details:${det[2]}`, fresh: () => parseDetails(document, document.head.innerHTML), render: (app2, d) => detailsView(app2, det[1], det[2], d), skeleton: "details" };
-    if (/^\/search/.test(path)) return { render: (app2) => searchView(app2), skeleton: "plain" };
+    if (/^\/search/.test(path)) return { render: (app2) => searchView(app2), skeleton: "plain", side: "search" };
     return null;
   }
   var isShellPath = (path) => !!route(path);
-  function skeleton(kind) {
+  function skeleton(kind, side) {
     const bar = (width) => h("div", { class: "jf-skel jf-skel--text", style: { width } });
     const skelCard = (shape) => h("div", { class: `jf-card jf-card--${shape} jf-skel-card` }, h("div", { class: "jf-card__img jf-skel" }), bar("60%"));
     const row = (n, shape) => h(
@@ -2105,8 +2422,18 @@ html.fc-playing #fc-loading { display: none; }
       h("div", { class: "jf-section__title" }, bar("240px")),
       h("div", { class: "jf-row jf-row--skel" }, Array.from({ length: n }, () => skelCard(shape)))
     );
-    if (kind === "home") return [header({ tabs: HOME_TABS, active: "home" }), h("main", { class: "jf-main" }, row(3, "landscape"), row(4, "landscape"), row(8, "portrait"), row(8, "portrait"))];
-    if (kind === "grid") return [header({ title: " " }), h("main", { class: "jf-main" }, h("div", { class: "jf-grid" }, Array.from({ length: 14 }, () => skelCard("portrait"))))];
+    const rail = (...kids) => [sidebar(side), h("main", { class: "jf-main jf-main--rail" }, ...kids)];
+    if (kind === "home") {
+      const hero = h("section", { class: "ah-hero" }, h(
+        "div",
+        { class: "ah-track" },
+        h("div", { class: "ah-item ah-item--active" }, h("div", { class: "ah-media jf-skel" })),
+        h("div", { class: "ah-item" }, h("div", { class: "ah-media jf-skel" })),
+        h("div", { class: "ah-item" }, h("div", { class: "ah-media jf-skel" }))
+      ));
+      return rail(hero, row(4, "landscape"), row(8, "portrait"));
+    }
+    if (kind === "grid") return rail(h("div", { class: "jf-pagetitle" }, bar("220px")), h("div", { class: "jf-grid" }, Array.from({ length: 14 }, () => skelCard("portrait"))));
     if (kind === "details") {
       return [header({ title: " " }), h("main", { class: "jf-main" }, h(
         "div",
@@ -2115,7 +2442,7 @@ html.fc-playing #fc-loading { display: none; }
         h("div", { class: "jf-details__body jf-skel-body" }, bar("40%"), bar("25%"), bar("180px"), bar("90%"), bar("85%"), bar("60%"))
       ))];
     }
-    return [header({ title: " " })];
+    return side ? rail() : [];
   }
   var playbackExpected = () => /^\/watch\/tv\/\d+\/[^/]+\/season\/\d+\/episode\/\d+/.test(location.pathname) || /^\/watch\/movie\/\d+/.test(location.pathname) && location.hash === "#play";
   var loading = null;
@@ -2177,7 +2504,7 @@ html.fc-playing #fc-loading { display: none; }
       app.replaceChildren();
     }
     drawn = null;
-    app.append(...skeleton(r.skeleton));
+    app.append(...skeleton(r.skeleton, r.side));
   }
   function redraw() {
     const r = route(location.pathname);
@@ -2212,7 +2539,7 @@ html.fc-playing #fc-loading { display: none; }
     const fresh = r.key ? r.fresh() : void 0;
     if (r.key) cache.set(r.key, fresh);
     const signedIn = document.querySelector('a[href="/account"]') ? "1" : "0";
-    const upToDate = drawn && drawn.id === r.id && (r.key ? same(drawn.data, fresh) && drawn.signedIn === signedIn : true);
+    const upToDate = drawn && drawn.id === r.id && (r.key ? (r.same || same)(drawn.data, fresh) && drawn.signedIn === signedIn : true);
     if (!upToDate) {
       const where = focusPath();
       const top = app.scrollTop;
@@ -2446,7 +2773,8 @@ html.fc-playing #fc-loading { display: none; }
           (_c = overlayRoot().querySelector(".cancel")) == null ? void 0 : _c.click();
           return;
         }
-        if (shell && shell.osd.visible()) shell.osd.hide();
+        if (inSidebar()) leaveSidebar();
+        else if (shell && shell.osd.visible()) shell.osd.hide();
         else if (playerOpen()) closePlayer();
         else history.back();
       } else if (PLAY_PAUSE.includes(code)) {

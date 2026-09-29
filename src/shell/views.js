@@ -1,31 +1,25 @@
 // Home, Favourites, Library and Search screens (Jellyfin TV layout, tv/JELLYFIN_STYLE.md).
-import { h, icon, card, section, header, epLabel, isSignedIn, toast } from './ui.js';
+import { h, icon, card, section, epLabel, isSignedIn, toast } from './ui.js';
+import { railLayout } from './sidebar.js';
+import { heroView } from './hero.js';
 import { library, search, watchEntries, continueWatching, nextUp, metaCache, progressIndex, progressOf } from './data.js';
 import { ensureMeta, epsOf, findEp, hrefOf } from './meta.js';
 import { counts as newCounts, load as loadScan } from '../episodes.js';
 
-export const HOME_TABS = [{ id: 'home', label: 'Home', href: '/home' }, { id: 'favourites', label: 'Favourites', href: '/mylists/favorites' }];
 const favoritePids = (t) => Object.keys(localStorage).filter((k) => k.startsWith(`bm:${t}:`)).map((k) => k.split(':')[2]);
 // Watch progress (site's pos:* history), indexed once per page: poster cards show a bar like Jellyfin's when 5–90 % watched.
 let progress = null;
 const prog = () => progress || (progress = progressIndex(watchEntries()));
 const posterCard = (c) => card({ href: c.href, image: c.poster, title: c.title, sub: c.season ? epLabel(c.season, c.episode) : c.year, progress: progressOf(prog(), c) });
-const focusFirst = (root) => setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) root.querySelector('.jf-card, button, a')?.focus({ preventScroll: true }); }, 0);
+const focusFirst = (root) => setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) (root.querySelector('.ah-media[tabindex="0"]') || root.querySelector('.jf-card, button, a'))?.focus({ preventScroll: true }); }, 0);
 
 // ---- Home ------------------------------------------------------------------------------------------------------
 // site: parseHome() of the site's page — fresh, or the cached copy while the page is still loading (shell.js).
 export function homeView(app, site) {
   const main = h('main', { class: 'jf-main' });
-  app.append(header({ tabs: HOME_TABS, active: 'home' }), main);
-
-  const backdropOf = (type) => site.hero.find((x) => x.href.includes(`/${type}/`) && x.backdrop)?.backdrop;
-  const media = section('My Media', [
-    card({ href: '/show/tvshows', image: backdropOf('tv'), imageSize: 'w780', title: 'Shows', shape: 'landscape' }),
-    card({ href: '/show/movies', image: backdropOf('movie'), imageSize: 'w780', title: 'Movies', shape: 'landscape' }),
-    card({ href: '/mylists/favorites', image: site.hero.map((x) => x.backdrop).filter((b) => b && b !== backdropOf('tv') && b !== backdropOf('movie'))[0], imageSize: 'w780', title: 'Favourites', shape: 'landscape' }),
-  ]);
+  railLayout(app, 'home', main);
   const personal = h('div', { class: 'jf-personal' });
-  main.append(media, personal,
+  main.append(site.hero.some((x) => x.pid) ? heroView(site.hero) : '', personal,
     site.latest.length ? section('Latest Episodes & Movies', site.latest.map(posterCard)) : '',
     site.popular.length ? section('Popular', site.popular.map(posterCard)) : '',
     site.tv.length ? section('Shows', site.tv.map(posterCard)) : '',
@@ -79,7 +73,7 @@ export function homeView(app, site) {
 // The site keeps favourites per browser in localStorage (bm:t:*/bm:m:*), filled by its sync once a Sync Code is active.
 export function favouritesView(app) {
   const main = h('main', { class: 'jf-main' });
-  app.append(header({ tabs: HOME_TABS, active: 'favourites' }), main);
+  railLayout(app, 'favourites', main, 'Favourites');
   const settingsLink = (text) => h('p', { class: 'jf-empty' }, text, ' ', h('a', { class: 'jf-button jf-button--inline', href: '/home#settings' }, 'Open Settings'));
   let loading = true;
   const itemsNow = () => [...favoritePids('t').map((pid) => ({ pid, type: 'tv' })), ...favoritePids('m').map((pid) => ({ pid, type: 'movie' }))];
@@ -122,12 +116,11 @@ export function libraryView(app, kind, first) {
   let page = 1;
   let lastPage = first ? first.lastPage : 1;
   let loading = false;
-  const tabs = [{ id: 'tv', label: 'Shows', href: '/show/tvshows' }, { id: 'movies', label: 'Movies', href: '/show/movies' }];
   const grid = h('div', { class: 'jf-grid' });
   const count = h('span', { class: 'jf-toolbar__count' });
   const sortBtn = h('button', { class: 'jf-iconbtn jf-toolbar__sort', 'aria-label': 'Sort', onclick: () => { const i = SORTS.findIndex(([k]) => k === sort); sort = SORTS[(i + 1) % SORTS.length][0]; history.replaceState(null, '', `?sort=${sort}`); reload(); } }, icon('sort'), h('span', {}, ''));
   const main = h('main', { class: 'jf-main' }, h('div', { class: 'jf-toolbar' }, count, sortBtn), grid);
-  app.append(header({ tabs, active: kind, title: kind === 'movies' ? 'Movies' : 'Shows' }), main);
+  railLayout(app, kind, main, kind === 'movies' ? 'Movies' : 'Shows');
 
   const add = (cards) => grid.append(...cards.map(posterCard));
   const label = () => { count.textContent = `1-${grid.children.length} of ${lastPage > page ? `${lastPage * 24}+` : grid.children.length}`; sortBtn.lastChild.textContent = SORTS.find(([k]) => k === sort)[1]; };
@@ -156,7 +149,7 @@ export function searchView(app) {
       h('button', { class: 'jf-key', 'aria-label': 'Delete', onclick: () => { input.value = input.value.slice(0, -1); changed(); } }, icon('backspace'))),
     h('div', { class: 'jf-keys__row' }, '0123456789'.split('').map((d) => h('button', { class: 'jf-key', onclick: () => type(d) }, d))));
   const main = h('main', { class: 'jf-main jf-search' }, h('div', { class: 'jf-search__bar' }, icon('search', 'jf-search__icon'), input), keys, results);
-  app.append(header({ title: 'Search' }), main);
+  railLayout(app, 'search', main);
 
   function type(ch) { input.value += ch.toLowerCase(); changed(); }
   let timer;

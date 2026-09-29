@@ -1,7 +1,8 @@
 // Settings (/home#settings): VIP sign-in, the list Sync Code, autoplay, and "About" details for troubleshooting.
 // The site's own sign-in form and sync-code box live on pages the shell covers, so they're offered here instead.
 /* global VERSION */
-import { h, header, isSignedIn, toast } from './ui.js';
+import { h, isSignedIn, toast } from './ui.js';
+import { railLayout } from './sidebar.js';
 import { loadProfiles, currentProfile, initialOf } from './profiles.js';
 
 const SETTINGS_KEY = 'fc-tv-settings';
@@ -27,7 +28,7 @@ const field = (label, input) => h('label', { class: 'jf-field' }, h('span', { cl
 
 export function settingsView(app) {
   const main = h('main', { class: 'jf-main jf-settings' });
-  app.append(header({ title: 'Settings' }), main);
+  railLayout(app, 'settings', main, 'Settings');
 
   // ---- Account
   const signedIn = isSignedIn();

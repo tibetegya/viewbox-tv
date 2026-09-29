@@ -8,12 +8,12 @@ let queue = Promise.resolve();
 export function ensureMeta(items, max = 12, onEach) {
   queue = queue.catch(() => {}).then(async () => {
     const cache = metaCache.all();
-    const todo = items.filter((it) => !cache[it.pid] || Date.now() - (cache[it.pid].ts || 0) > TTL).slice(0, max);
+    const todo = items.filter((it) => !cache[it.pid] || !('trailer' in cache[it.pid]) || Date.now() - (cache[it.pid].ts || 0) > TTL).slice(0, max);
     for (const it of todo) {
       try {
         const d = await details(it.type, it.pid);
         metaCache.put(it.pid, {
-          type: it.type, title: d.title, year: d.year, slug: d.slug, poster: d.poster, backdrop: d.backdrop,
+          type: it.type, title: d.title, year: d.year, slug: d.slug, poster: d.poster, backdrop: d.backdrop, trailer: d.trailer,
           eps: d.seasons.flatMap((s) => s.episodes.map((e) => [e.season, e.episode, e.title, e.thumb])),
         });
         if (onEach) onEach();

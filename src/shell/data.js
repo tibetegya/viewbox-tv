@@ -85,11 +85,18 @@ export function parseHero(root) {
   return [...root.querySelectorAll('.carousel-item')].map((s) => {
     const cap = s.querySelector('.carousel-caption-container[data-href]');
     const bg = /\/t\/p\/original\/([A-Za-z0-9_-]+\.jpg)/.exec(s.getAttribute('style') || '');
-    return cap && {
-      href: cap.dataset.href,
+    if (!cap) return null;
+    const href = cap.dataset.href;
+    const [, type, pid] = /^\/watch\/(tv|movie)\/(\d+)/.exec(href) || [];
+    const facts = cap.querySelector('.t14 div')?.textContent.replace(/\s+/g, ' ').trim() || ''; // "2026 TV-MA"
+    return {
+      href, pid, type: type === 'movie' ? 'movie' : 'tv',
       title: cap.querySelector('.font-weight-normal')?.textContent.trim() || '',
       overview: cap.querySelector('.t16')?.textContent.trim() || '',
       backdrop: bg ? bg[1] : null,
+      year: (/\b(\d{4})\b/.exec(facts) || [])[1] || '',
+      contentRating: facts.replace(/\b\d{4}\b/, '').trim(),
+      rating: (/Rated:\s*([\d.]+)/.exec(cap.querySelector('.t14')?.textContent || '') || [])[1] || '',
     };
   }).filter(Boolean);
 }
@@ -129,6 +136,7 @@ export function parseDetails(doc, html) {
     network: links('network')[0] || '',
     seasons,
     similar: parseCards(doc.querySelector('.section-watch-recomm') || doc.createElement('div')),
+    trailer: (ov?.querySelector('[data-ytlink]') || doc.querySelector('[data-ytlink]'))?.dataset.ytlink || null,
   };
 }
 
