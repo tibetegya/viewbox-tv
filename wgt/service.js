@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Viewbox TV's background service, adapted from TizenBrew's (github.com/reisxd/TizenBrew, GPL-3.0).
+// A Tizen web app can't inject script into a remote site, so, like TizenBrew, this service asks the TV's own sdbd
+// (Developer Mode with Host PC IP 127.0.0.1) to relaunch the app with a DevTools port, then injects the bundled
+// module (dist/main.js, embedded at build time as MODULE_SRC) into every page over the DevTools protocol.
+/* global tizen, MODULE_SRC */
+'use strict';
+
+const adbhost = require('adbhost');
+const CDP = require('chrome-remote-interface');
+
+const APP = 'ViewboxTV';
+let client = null; // DevTools connection to the app, while it's open
+let connecting = false;
+
+// Inject at document start in every new page (no flash of the site's own UI), plus into contexts that already exist.
+// main.js guards against running twice (window.__fcTv).
+function attach(port, host, attempt) {
+  CDP({ port, host, local: true }, (c) => {
+    client = c;
+    connecting = false;
+    c.on('disconnect', () => { client = null; });
+    c.on('Runtime.executionContextCreated', (msg) => {
+      c.Runtime.evaluate({ expression: MODULE_SRC, contextId: msg.context.id }).catch(() => {});
+    });
+    c.Runtime.enable();
+    c.Page.enable()
+      .then(() => c.Page.addScriptToEvaluateOnNewDocument({ source: MODULE_SRC }))
+      .then(() => c.Page.reload()) // the start page loaded before we attached: reload it with the module
+      .catch((e) => console.log(`[viewbox] Page setup failed: ${e.message}`));
+  }).on('error', (e) => {
+    if (attempt >= 20) { connecting = false; console.log(`[viewbox] DevTools connect failed: ${e.message}`); return; }
+    setTimeout(() => attach(port, host, attempt + 1), 750);
+  });
+}
+
+// `0 debug <app id>` relaunches the app with a DevTools port and prints "... port: 12345".
+function relaunchInDebug() {
+  const pkg = tizen.application.getAppInfo().packageId;
+  const tizen3 = tizen.systeminfo.getCapability('http://tizen.org/feature/platform.version').startsWith('3.0');
+  const adb = adbhost.createConnection({ host: '127.0.0.1', port: 26101 });
+  adb._stream.on('connect', () => {
+    const sh = adb.createStream(`shell:0 debug ${pkg}.${APP}${tizen3 ? ' 0' : ''}`);
+    sh.on('data', (data) => {
+      const s = data.toString();
+      if (!s.includes('debug')) return;
+      const port = Number(s.substr(s.indexOf(':') + 1, 6).replace(' ', ''));
+      attach(port, '127.0.0.1', 1);
+      setTimeout(() => adb._stream.end(), 1000);
+    });
+  });
+  adb._stream.on('error', (e) => { connecting = false; console.log(`[viewbox] sdb connection failed (Developer Mode / Host PC IP 127.0.0.1?): ${e}`); });
+}
+
+// The start page asks for this on every launch; only act when the app isn't already attached.
+function ensure() {
+  if (client || connecting) return;
+  connecting = true;
+  relaunchInDebug();
+}
+
+module.exports.onStart = ensure;
+module.exports.onRequest = ensure;
+module.exports.onExit = () => { if (client) client.close(); };
+module.exports.attach = attach; // for desktop testing

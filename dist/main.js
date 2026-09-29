@@ -837,7 +837,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       "section",
       { class: "jf-settings__section" },
       h("h2", { class: "jf-section__title" }, "About"),
-      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.3.5" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
+      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.4.0" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
       h("p", { class: "jf-settings__about" }, navigator.userAgent)
     );
     main.append(account, sync, playback, about);

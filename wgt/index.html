@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="fc-launcher" content="1">
+  <title>Viewbox TV</title>
+  <link rel="icon" href="icon.png">
+  <style>
+    html, body { margin: 0; height: 100%; background: #111; color: #eee; font: 24px system-ui, sans-serif; }
+    body { display: grid; place-items: center; }
+    #fc-diag { max-width: 70rem; padding: 2rem; line-height: 1.4; text-align: center; }
+    #fc-diag img { width: 160px; height: 160px; }
+    #fc-diag h1 { font-size: 1.6rem; margin: 0 0 1rem; }
+    #fc-diag .ua { color: #999; font-size: .8rem; }
+  </style>
+</head>
+<body>
+  <div id="fc-diag">
+    <img src="icon.png" alt="">
+    <p>Starting…</p>
+  </div>
+  <script>
+    // Standalone app (.wgt): the service (service.js) relaunches this app with DevTools and injects the module, which
+    // then turns this page into the launcher (src/launcher.js).
+    var KEYS = ['MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaFastForward', 'MediaRewind', 'ColorF0Red'];
+    try { KEYS.forEach(function (k) { tizen.tvinputdevice.registerKey(k); }); } catch (e) {}
+    try {
+      var pkg = tizen.application.getCurrentApplication().appInfo.packageId;
+      tizen.application.launchAppControl(new tizen.ApplicationControl('http://tizen.org/appcontrol/operation/service'), pkg + '.ViewboxService', null, function (e) {
+        document.querySelector('#fc-diag p').textContent = 'Couldn’t start the Viewbox service: ' + e.message;
+      });
+    } catch (e) {}
+
+    // If the module never takes over, say why.
+    setTimeout(function () {
+      if (document.documentElement.className.indexOf('fc-launcher') !== -1) return; // module took over: all good
+      var d = document.getElementById('fc-diag');
+      if (!d) return;
+      d.innerHTML = '<h1>Viewbox TV didn’t start</h1>' +
+        '<p>The TV has to allow the app to load its interface: turn on <b>Developer mode</b> with <b>Host PC IP 127.0.0.1</b> (Apps → press 1-2-3-4-5), restart the TV, then open Viewbox TV again.</p>' +
+        '<p class="ua"></p>';
+      d.querySelector('.ua').textContent = 'Browser: ' + navigator.userAgent;
+    }, 20000);
+  </script>
+</body>
+</html>
