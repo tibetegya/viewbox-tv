@@ -53,17 +53,26 @@ function attach(port, host, attempt) {
 }
 
 // `0 debug <app id>` relaunches the app with a DevTools port and prints "... port: 12345".
-function relaunchInDebug() {
+function relaunchInDebug(attempt) {
   const pkg = tizen.application.getAppInfo().packageId;
   const tizen3 = tizen.systeminfo.getCapability('http://tizen.org/feature/platform.version').startsWith('3.0');
   const cmd = `0 debug ${pkg}.${APP}${tizen3 ? ' 0' : ''}`;
-  log(`Node ${process.version}; sdb: ${cmd}`);
+  log(`Node ${process.version}; sdb (try ${attempt}): ${cmd}`);
   const adb = adbhost.createConnection({ host: '127.0.0.1', port: 26101 });
+  let answered = false;
+  // Packet-level trace (adbhost ignores AUTH, so a stall after "connected" shows up here).
+  const trace = adb._onPacket;
+  adb._onPacket = function () {
+    const p = this._packet;
+    if (p) log(`sdbd ← ${p.cmd || p.command} ${p.arg1}/${p.arg2}${p.data ? ` ${JSON.stringify(p.data.toString().slice(0, 80))}` : ''}`);
+    return trace.apply(this, arguments);
+  };
   adb._stream.on('connect', () => {
-    log('sdbd connected');
+    log('sdbd socket open');
     const sh = adb.createStream(`shell:${cmd}`);
     sh.on('data', (data) => {
       const s = data.toString();
+      answered = true;
       log(`sdb: ${s.trim()}`);
       if (!s.includes('debug')) return;
       const port = Number(s.substr(s.indexOf(':') + 1, 6).replace(' ', ''));
@@ -71,7 +80,15 @@ function relaunchInDebug() {
       setTimeout(() => adb._stream.end(), 1000);
     });
   });
-  adb._stream.on('error', (e) => { connecting = false; log(`sdbd connection failed (Developer mode on, Host PC IP 127.0.0.1?): ${e.message}`); });
+  adb._stream.on('end', () => log('sdbd closed the connection'));
+  adb._stream.on('error', (e) => { answered = true; connecting = false; log(`sdbd connection failed (Developer mode on, Host PC IP 127.0.0.1?): ${e.message}`); });
+  // No answer: drop this connection and try again (up to 3 times).
+  setTimeout(() => {
+    if (answered) return;
+    log('no answer from sdbd in 6 s');
+    try { adb._stream.destroy(); } catch (e) {}
+    if (attempt < 3) relaunchInDebug(attempt + 1); else connecting = false;
+  }, 6000);
 }
 
 // The start page asks for this on every launch; only act when the app isn't already attached.
@@ -79,7 +96,7 @@ function ensure() {
   log(`launch request (${client ? 'attached' : connecting ? 'connecting' : 'idle'})`);
   if (client || connecting) return;
   connecting = true;
-  try { relaunchInDebug(); } catch (e) { connecting = false; log(`relaunch failed: ${e.message}`); }
+  try { relaunchInDebug(1); } catch (e) { connecting = false; log(`relaunch failed: ${e.message}`); }
 }
 
 module.exports.onStart = ensure;

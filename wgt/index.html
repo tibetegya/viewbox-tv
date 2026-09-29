@@ -13,7 +13,7 @@
     #fc-diag img { width: 160px; height: 160px; }
     #fc-diag h1 { font-size: 1.6rem; margin: 0 0 1rem; }
     #fc-diag .ua { color: #999; font-size: .8rem; }
-    #fc-diag pre { text-align: left; white-space: pre-wrap; font-size: .75rem; color: #ffb4a9; max-height: 50vh; overflow: hidden; }
+    #fc-diag pre { text-align: left; white-space: pre-wrap; font-size: .75rem; color: #ffb4a9; max-height: 60vh; overflow: hidden; font-size: .65rem; }
   </style>
 </head>
 <body>
@@ -46,12 +46,15 @@
       d.querySelector('.ua').textContent = 'Browser: ' + navigator.userAgent;
       var pre = d.querySelector('pre');
       // The service's step log (service.js) says where launching stopped.
-      var x = new XMLHttpRequest();
-      x.open('GET', 'http://127.0.0.1:8083/');
-      x.timeout = 3000;
-      x.onload = function () { pre.textContent = (launchError ? launchError + '\n' : '') + 'Service log:\n' + (x.responseText || '(empty)'); };
-      x.onerror = x.ontimeout = function () { pre.textContent = (launchError || 'The Viewbox service isn’t running (no log at 127.0.0.1:8083).'); };
-      x.send();
+      (function poll() { // refreshed every 2 s, so the latest steps are always on screen
+        var x = new XMLHttpRequest();
+        x.open('GET', 'http://127.0.0.1:8083/');
+        x.timeout = 3000;
+        x.onload = function () { pre.textContent = (launchError ? launchError + '\n' : '') + 'Service log:\n' + (x.responseText || '(empty)'); };
+        x.onerror = x.ontimeout = function () { pre.textContent = (launchError || 'The Viewbox service isn’t running (no log at 127.0.0.1:8083).'); };
+        x.send();
+        setTimeout(poll, 2000);
+      })();
     }, 20000);
   </script>
 </body>
