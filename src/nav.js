@@ -85,7 +85,13 @@ export function move(dir) {
   if (!list.length) return false;
   const cur = activeEl();
   const from = cur && list.some((c) => c.el === cur) ? cur.getBoundingClientRect() : { left: 0, top: -1, width: 0, height: 0 };
-  const next = pickNext(from, list, cur ? dir : 'down') ?? (cur ? null : list[0]);
+  let next = pickNext(from, list, cur ? dir : 'down') ?? (cur ? null : list[0]);
+  // Jellyfin-style: ↑/↓ into another row lands on its leftmost visible card, not the one under the old focus.
+  const row = (dir === 'up' || dir === 'down') && next?.el.closest('.jf-row');
+  if (row && row !== cur?.closest('.jf-row')) {
+    const edge = row.getBoundingClientRect().left;
+    next = list.find((c) => c.el.closest('.jf-row') === row && c.rect.left >= edge - 1) || next;
+  }
   if (next) focusEl(next.el);
   return !!next;
 }

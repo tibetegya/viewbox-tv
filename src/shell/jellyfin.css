@@ -47,7 +47,7 @@ html.fc-playing .player:not(.hide) #player { width: 100vw !important; height: 10
 .jf-section { margin: 0; }
 .jf-section__title { font: 400 30px/40.5px var(--jf-font); color: var(--jf-text); margin: 0; padding: 15px 0 6px var(--jf-pad); }
 .jf-center { text-align: center; padding-left: 0; }
-.jf-row { display: flex; overflow-x: auto; overflow-y: visible; padding: 12px var(--jf-pad) 36px; scrollbar-width: none; scroll-padding: 0 var(--jf-pad); }
+.jf-row { display: flex; overflow-x: auto; overflow-y: visible; padding: 24px var(--jf-pad) 40px; margin-top: -12px; /* room for the 1.07 zoom + focus ring: a scroller clips vertically too */ scrollbar-width: none; scroll-padding: 0 var(--jf-pad); }
 .jf-row::-webkit-scrollbar { display: none; }
 .jf-grid { display: flex; flex-wrap: wrap; padding: 12px var(--jf-pad) 24px; }
 .jf-empty { padding: 24px var(--jf-pad); color: var(--jf-text-2); }

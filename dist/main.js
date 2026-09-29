@@ -81,7 +81,12 @@
     if (!list.length) return false;
     const cur = activeEl();
     const from = cur && list.some((c) => c.el === cur) ? cur.getBoundingClientRect() : { left: 0, top: -1, width: 0, height: 0 };
-    const next = (_a = pickNext(from, list, cur ? dir : "down")) != null ? _a : cur ? null : list[0];
+    let next = (_a = pickNext(from, list, cur ? dir : "down")) != null ? _a : cur ? null : list[0];
+    const row = (dir === "up" || dir === "down") && (next == null ? void 0 : next.el.closest(".jf-row"));
+    if (row && row !== (cur == null ? void 0 : cur.closest(".jf-row"))) {
+      const edge = row.getBoundingClientRect().left;
+      next = list.find((c) => c.el.closest(".jf-row") === row && c.rect.left >= edge - 1) || next;
+    }
     if (next) focusEl(next.el);
     return !!next;
   }
@@ -300,7 +305,7 @@ html.fc-playing .player:not(.hide) #player { width: 100vw !important; height: 10
 .jf-section { margin: 0; }
 .jf-section__title { font: 400 30px/40.5px var(--jf-font); color: var(--jf-text); margin: 0; padding: 15px 0 6px var(--jf-pad); }
 .jf-center { text-align: center; padding-left: 0; }
-.jf-row { display: flex; overflow-x: auto; overflow-y: visible; padding: 12px var(--jf-pad) 36px; scrollbar-width: none; scroll-padding: 0 var(--jf-pad); }
+.jf-row { display: flex; overflow-x: auto; overflow-y: visible; padding: 24px var(--jf-pad) 40px; margin-top: -12px; /* room for the 1.07 zoom + focus ring: a scroller clips vertically too */ scrollbar-width: none; scroll-padding: 0 var(--jf-pad); }
 .jf-row::-webkit-scrollbar { display: none; }
 .jf-grid { display: flex; flex-wrap: wrap; padding: 12px var(--jf-pad) 24px; }
 .jf-empty { padding: 24px var(--jf-pad); color: var(--jf-text-2); }
@@ -832,7 +837,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       "section",
       { class: "jf-settings__section" },
       h("h2", { class: "jf-section__title" }, "About"),
-      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.3.3" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
+      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.3.4" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
       h("p", { class: "jf-settings__about" }, navigator.userAgent)
     );
     main.append(account, sync, playback, about);
