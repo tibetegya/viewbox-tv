@@ -28,7 +28,7 @@
       var html = '<h1>Viewbox TV didn’t start</h1>';
       if (err) html += '<p>The module loaded but hit an error:</p><pre></pre>';
       else if (injected) html += '<p>The module was injected but didn’t draw the start screen (no error recorded).</p>';
-      else html += '<p><b>The module was not injected.</b> Check that TizenBrew’s module name is <code>gh/tibetegya/viewbox-tv</code>, that the TV can reach cdn.jsdelivr.net, then restart TizenBrew.</p>';
+      else html += '<p><b>The module was not injected.</b> Most often: Developer mode’s <b>Host PC IP must be 127.0.0.1</b> (Apps → 1-2-3-4-5), then restart the TV. Also check that TizenBrew’s module name is <code>gh/tibetegya/viewbox-tv</code> and that the TV can reach cdn.jsdelivr.net.</p>';
       html += '<p class="ua"></p>';
       d.innerHTML = html;
       if (err) d.querySelector('pre').textContent = err;

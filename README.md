@@ -26,11 +26,12 @@ Published at **github.com/tibetegya/viewbox-tv** (contents of this folder at the
 - Releases are tagged (`v0.2.0`, …); jsDelivr serves the module files from the repo.
 
 ## Install on the TV (one-time)
-1. On the TV: Apps → press 1-2-3-4-5 on the remote → Developer mode **On**, enter your computer's IP → restart the TV.
+1. On the TV: Apps → press 1-2-3-4-5 on the remote → Developer mode **On**, Host PC IP = your computer's IP → restart the TV.
 2. Install TizenBrew with the TizenBrew installer (see the TizenBrew README).
-3. In TizenBrew, add the module `gh/tibetegya/viewbox-tv` and launch "Viewbox TV".
-4. First launch: select the address box, press Enter, type the site address (e.g. `example.com`), then **Open**. It's remembered; later launches open it after a 3-second start screen (press **Red** there to change it).
-5. Sign in once with the site's own form and enter your list sync code if the site uses one — the TV's browser remembers both.
+3. **Set Host PC IP back to `127.0.0.1`** (Apps → 1-2-3-4-5), then restart the TV. TizenBrew can only inject modules when Developer mode points at the TV itself — with any other IP the module never loads.
+4. In TizenBrew, add the module `gh/tibetegya/viewbox-tv` (or pin a release, e.g. `gh/tibetegya/viewbox-tv@v0.2.3`) and launch "Viewbox TV".
+5. First launch: select the address box, press Enter, type the site address (e.g. `example.com`), then **Open**. It's remembered; later launches open it after a 3-second start screen (press **Red** there to change it).
+6. Sign in once with the site's own form and enter your list sync code if the site uses one — the TV's browser remembers both.
 
 ## Notes
 - **New episodes come from the site's own show pages, not TMDB.** The site's CSP blocks outside APIs from injected page code, and TizenBrew doesn't bypass CSP. So "new" means actually playable on the site.
