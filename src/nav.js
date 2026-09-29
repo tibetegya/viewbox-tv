@@ -121,6 +121,9 @@ export function move(dir) {
     const edge = row.getBoundingClientRect().left;
     next = list.find((c) => c.el.closest('.jf-row') === row && c.rect.left >= edge - 1) || next;
   }
+  // ↑ from the rows into the hero lands on the card, not on its buttons.
+  const hero = dir === 'up' && next?.el.closest('.ah-hero');
+  if (hero && !cur?.closest('.ah-hero')) next = { el: hero.querySelector('.ah-media[tabindex="0"]') || next.el };
   if (side && dir === 'left' && next && side.contains(next.el) && !(cur && side.contains(cur))) {
     lastContent = cur;
     next = { el: side.querySelector('.nv-side__item--active') || next.el };

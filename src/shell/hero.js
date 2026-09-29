@@ -1,5 +1,6 @@
 // Home hero: the site's own home carousel, laid out like the Apple TV home — a track where the active item is 16:9 and
-// the others 4:3, the active one playing its YouTube trailer behind the title, Watch and Pause buttons.
+// the others 4:3, the active one playing its YouTube trailer behind the title, Watch, trailer play/pause and
+// mute buttons.
 // Remote: ←/→ change item (← on the first opens the sidebar), OK toggles the trailer, ↓ to the buttons, ↓ again to
 // the rows. While the trailer plays the info fades out; pausing (or focusing the buttons) brings it back.
 import { h, icon, keyHook } from './ui.js';
@@ -16,7 +17,7 @@ const post = (frame, func, args = []) => { try { frame.contentWindow.postMessage
 export function heroView(all) {
   const items = all.filter((it) => it.pid); // (Home data cached by older versions has no ids)
   let idx = 0;
-  let player = null; // { frame, state, userPaused, muted, soundTimer }
+  let player = null; // { frame, state, userPaused, muted, userMuted, soundTimer }
   let dwell = null;
 
   const els = items.map((it) => {
@@ -31,7 +32,7 @@ export function heroView(all) {
       h('div', { class: 'ah-buttons' }, watch, pauseBtn));
     media.addEventListener('focus', () => item.classList.add('ah-item--focus'));
     media.addEventListener('blur', () => item.classList.remove('ah-item--focus'));
-    const mute = h('div', { class: 'ah-mute', 'aria-hidden': 'true', hidden: true }, icon('mute')); // display only
+    const mute = h('button', { class: 'ah-mute', 'aria-label': 'Unmute trailer', hidden: true, onclick: () => toggleMute() }, icon('mute'));
     const item = h('div', { class: 'ah-item' }, media, info, mute);
     return { it, item, media, info, watch, pauseBtn, mute };
   });
@@ -58,9 +59,11 @@ export function heroView(all) {
     const playing = !!player && player.state === 1 && !player.userPaused;
     e.item.classList.toggle('ah-item--video', !!player && player.started); // once playing, a paused trailer keeps its frame
     e.item.classList.toggle('ah-item--playing', playing);
-    e.pauseBtn.replaceChildren(icon(playing ? 'pause' : 'play'));
+    e.pauseBtn.replaceChildren(icon(playing ? 'pause' : 'trailer'));
     e.pauseBtn.setAttribute('aria-label', playing ? 'Pause trailer' : 'Play trailer');
-    e.mute.hidden = !(player && player.muted && player.started);
+    e.mute.hidden = !(player && player.started);
+    e.mute.replaceChildren(icon(player && player.muted ? 'mute' : 'volume'));
+    e.mute.setAttribute('aria-label', player && player.muted ? 'Unmute trailer' : 'Mute trailer');
   }
   function load() {
     stop();
@@ -73,7 +76,7 @@ export function heroView(all) {
       return;
     }
     if (!id) return;
-    dwell = setTimeout(() => start(e, id), DWELL_MS);
+    dwell = setTimeout(() => { dwell = null; if (root.contains(document.activeElement)) start(e, id); }, DWELL_MS); // not behind the sidebar
   }
   function start(e, id, muted = false) {
     const src = `https://www.youtube.com/embed/${id}?autoplay=1&mute=${muted ? 1 : 0}&controls=0&disablekb=1&fs=0&modestbranding=1&rel=0&iv_load_policy=3&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
@@ -107,6 +110,13 @@ export function heroView(all) {
     post(player.frame, player.userPaused ? 'pauseVideo' : 'playVideo');
     paint();
   }
+  function toggleMute() {
+    if (!player) return;
+    player.muted = !player.muted;
+    player.userMuted = player.muted; // a mute the user chose isn't undone by the next key press
+    post(player.frame, player.muted ? 'mute' : 'unMute');
+    paint();
+  }
 
   // ---- items ----
   // focus: 'card' | 'watch' | 'last' (the row's last button) | false
@@ -122,21 +132,26 @@ export function heroView(all) {
     track.style.setProperty('--i', idx);
     load(); // (decides whether the Pause button shows)
     const e = cur();
-    const target = focus === 'card' ? e.media : focus === 'watch' ? e.watch : focus === 'last' ? (e.pauseBtn.hidden ? e.watch : e.pauseBtn) : null;
+    const target = focus === 'card' ? e.media : focus === 'watch' ? e.watch : focus === 'last' ? lastBtn(e) : null;
     if (target) target.focus({ preventScroll: true });
   }
 
+  const rowBtns = (e) => [e.watch, e.pauseBtn, e.mute].filter((b) => !b.hidden);
+  const lastBtn = (e) => rowBtns(e).pop();
+
   keyHook.fn = (e) => {
     if (!root.isConnected) { keyHook.fn = null; window.removeEventListener('message', onMessage); stop(); return false; }
-    if (player && player.muted && player.state === 1) { post(player.frame, 'unMute'); player.muted = false; paint(); } // a key press is a user gesture
+    if (player && player.muted && !player.userMuted && player.state === 1) { post(player.frame, 'unMute'); player.muted = false; paint(); } // a key press is a user gesture
     const k = e.keyCode;
     const c = cur();
     const a = document.activeElement;
-    // Button row: ← on Watch → previous item's last button (or the sidebar); → on the last button → next item's Watch.
-    if (a === c.watch || a === c.pauseBtn) {
-      const last = c.pauseBtn.hidden ? c.watch : c.pauseBtn;
-      if (k === 37 && a === c.watch) { if (idx > 0) select(idx - 1, 'last'); else enterSidebar(); return true; }
-      if (k === 39 && a === last) { if (idx < els.length - 1) select(idx + 1, 'watch'); return true; }
+    // Button row (Watch, trailer, mute — mute sits at the far right, so spatial nav would pick the card): ←/→ step
+    // along it; past its ends → the previous item's last button (or the sidebar) / the next item's Watch.
+    const row = rowBtns(c);
+    const at = row.indexOf(a);
+    if (at >= 0) {
+      if (k === 37) { if (at > 0) row[at - 1].focus({ preventScroll: true }); else if (idx > 0) select(idx - 1, 'last'); else enterSidebar(); return true; }
+      if (k === 39) { if (at < row.length - 1) row[at + 1].focus({ preventScroll: true }); else if (idx < els.length - 1) select(idx + 1, 'watch'); return true; }
       return false;
     }
     if (a !== c.media) return false;
@@ -147,14 +162,12 @@ export function heroView(all) {
     return false;
   };
 
-  // Out of view (focus moved down to the rows): pause, and resume when it's back (unless the user paused it).
-  if (typeof IntersectionObserver === 'function') {
-    new IntersectionObserver(([entry]) => {
-      if (!player) return;
-      if (!entry.isIntersecting) post(player.frame, 'pauseVideo');
-      else if (!player.userPaused) post(player.frame, 'playVideo');
-    }, { threshold: 0.35 }).observe(root);
-  }
+  // Focus left the hero (← to the sidebar, ↓ to the rows): pause; back in: resume (unless the user paused it).
+  root.addEventListener('focusout', () => setTimeout(() => { if (player && !root.contains(document.activeElement)) post(player.frame, 'pauseVideo'); }));
+  root.addEventListener('focusin', (ev) => {
+    if (ev.relatedTarget && root.contains(ev.relatedTarget)) return; // moving within the hero
+    if (player) { if (!player.userPaused) post(player.frame, 'playVideo'); } else if (!dwell) load();
+  });
 
   select(0, false);
   ensureMeta(items.map((it) => ({ pid: it.pid, type: it.type })), items.length); // trailer ids for the rest, in the background
