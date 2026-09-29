@@ -1,11 +1,11 @@
 // Home, Favourites, Library and Search screens (Jellyfin TV layout, tv/JELLYFIN_STYLE.md).
 import { h, icon, card, section, header, epLabel, isSignedIn, toast } from './ui.js';
 import { applyPendingSync } from './settings.js';
-import { parseHome, parseCards, library, search, watchEntries, continueWatching, nextUp, metaCache, progressIndex, progressOf } from './data.js';
+import { library, search, watchEntries, continueWatching, nextUp, metaCache, progressIndex, progressOf } from './data.js';
 import { ensureMeta, epsOf, findEp, hrefOf } from './meta.js';
 import { counts as newCounts, load as loadScan } from '../episodes.js';
 
-const HOME_TABS = [{ id: 'home', label: 'Home', href: '/home' }, { id: 'favourites', label: 'Favourites', href: '/mylists/favorites' }];
+export const HOME_TABS = [{ id: 'home', label: 'Home', href: '/home' }, { id: 'favourites', label: 'Favourites', href: '/mylists/favorites' }];
 const favoritePids = (t) => Object.keys(localStorage).filter((k) => k.startsWith(`bm:${t}:`)).map((k) => k.split(':')[2]);
 // Watch progress (site's pos:* history), indexed once per page: poster cards show a bar like Jellyfin's when 5–90 % watched.
 let progress = null;
@@ -14,8 +14,8 @@ const posterCard = (c) => card({ href: c.href, image: c.poster, title: c.title, 
 const focusFirst = (root) => setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) root.querySelector('.jf-card, button, a')?.focus({ preventScroll: true }); }, 0);
 
 // ---- Home ------------------------------------------------------------------------------------------------------
-export function homeView(app) {
-  const site = parseHome(document);
+// site: parseHome() of the site's page — fresh, or the cached copy while the page is still loading (shell.js).
+export function homeView(app, site) {
   const main = h('main', { class: 'jf-main' });
   app.append(header({ tabs: HOME_TABS, active: 'home' }), main);
 
@@ -126,11 +126,12 @@ export function favouritesView(app) {
 
 // ---- Library (Shows / Movies) ------------------------------------------------------------------------------------
 const SORTS = [['latest', 'Latest'], ['best', 'Best Rated'], ['name', 'Name']];
-export function libraryView(app, kind) {
+// first: the page the site rendered ({cards, lastPage}, or its cached copy), for the default sort only.
+export function libraryView(app, kind, first) {
   const params = new URLSearchParams(location.search);
   let sort = params.get('sort') || 'latest';
   let page = 1;
-  let lastPage = Math.max(1, ...[...document.querySelectorAll('.searchnav[data-p]')].map((a) => +a.dataset.p || 1));
+  let lastPage = first ? first.lastPage : 1;
   let loading = false;
   const tabs = [{ id: 'tv', label: 'Shows', href: '/show/tvshows' }, { id: 'movies', label: 'Movies', href: '/show/movies' }];
   const grid = h('div', { class: 'jf-grid' });
@@ -150,7 +151,7 @@ export function libraryView(app, kind) {
     loading = true;
     try { const r = await library(kind, 1, sort); page = 1; lastPage = r.lastPage; grid.replaceChildren(); add(r.cards); label(); grid.querySelector('.jf-card')?.focus(); } finally { loading = false; }
   }
-  if (sort === 'latest' && !params.get('page')) { add(parseCards(document.querySelector('#content') || document).filter((c) => c.type === (kind === 'movies' ? 'movie' : 'tv'))); label(); focusFirst(grid); } else reload();
+  if (first) { add(first.cards); label(); focusFirst(grid); } else reload();
   // Infinite scroll: fetch the next page when focus reaches the last two rows.
   grid.addEventListener('focusin', (e) => { const i = [...grid.children].indexOf(e.target.closest('.jf-card')); if (i >= grid.children.length - 14) more(); });
 }
@@ -178,15 +179,19 @@ export function searchView(app) {
     const my = ++token;
     if (!q) return suggestions();
     results.replaceChildren(h('p', { class: 'jf-empty' }, 'Searching…'));
-    try {
-      const r = await search(q);
+    const show = (r) => {
       if (my !== token) return;
       const shows = r.cards.filter((c) => c.type === 'tv').map(posterCard);
       const movies = r.cards.filter((c) => c.type === 'movie').map(posterCard);
+      const had = results.contains(document.activeElement);
       results.replaceChildren(
         shows.length ? section('Shows', shows) : '',
         movies.length ? section('Movies', movies) : '',
         !shows.length && !movies.length ? h('p', { class: 'jf-empty' }, 'No results.') : '');
+      if (had) results.querySelector('.jf-card')?.focus({ preventScroll: true });
+    };
+    try {
+      show(await search(q, 1, show)); // cached results at once, redrawn if the site's answer changed
     } catch (e) {
       if (my === token) results.replaceChildren(h('p', { class: 'jf-empty' }, 'Search failed. Try again.'));
     }

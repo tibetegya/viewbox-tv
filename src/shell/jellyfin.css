@@ -90,7 +90,9 @@ html.fc-playing .player:not(.hide) #player { width: 100vw !important; height: 10
 .jf-details__info { border-collapse: collapse; margin-bottom: 20px; }
 .jf-details__info th { text-align: left; font-weight: 400; padding: 5px 80px 5px 0; }
 .jf-details__info td { font-weight: 600; padding: 5px 0; }
-.jf-details .jf-section__title, .jf-details .jf-row { padding-left: 0; }
+.jf-details .jf-section__title { padding-left: 0; }
+/* Rows scroll, so they clip: keep room on the left for the focused card's zoom + ring, without moving the cards. */
+.jf-details .jf-row { padding-left: 24px; margin-left: -24px; scroll-padding-left: 24px; }
 .jf-episodes { display: grid; gap: 10px; }
 .jf-episode { scroll-margin: 140px 0 60px; display: flex; gap: 30px; align-items: center; text-align: left; padding: 0; border-radius: 4px; }
 .jf-episode:focus { background: rgba(255, 255, 255, .08); }
@@ -168,3 +170,23 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
 .jf-toggle::before { content: ''; width: 52px; height: 28px; border-radius: 14px; background: #444; box-shadow: inset 0 0 0 2px #555; transition: background .15s; }
 .jf-toggle--on::before { background: var(--jf-accent); }
 .jf-toggle:focus { background: rgba(255, 255, 255, .1) !important; box-shadow: 0 0 0 3px var(--jf-focus); }
+
+/* ---- Skeletons (first visit, while the site's page loads) ---- */
+.jf-skel { background: #242424; border-radius: 4px; animation: jf-pulse 1.4s ease-in-out infinite; }
+.jf-skel--text { height: 18px; margin: 12px auto 0; }
+.jf-section__title .jf-skel--text { height: 26px; margin: 8px 0 4px; }
+.jf-skel-body .jf-skel--text { margin: 0 0 22px; height: 24px; }
+.jf-skel-body .jf-skel--text:first-child { height: 40px; }
+.jf-row--skel { overflow: hidden; }
+.jf-skel-card .jf-card__img { background: #242424; }
+@keyframes jf-pulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+
+/* ---- Loading screen before playback ---- */
+#fc-loading { position: fixed; inset: 0; z-index: 9500; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: #000 center / cover no-repeat; color: #fff; font: 400 24px/1.4 var(--jf-font); text-align: center; }
+#fc-loading::before { content: ''; position: absolute; inset: 0; background: rgba(0, 0, 0, .75); }
+#fc-loading > * { position: relative; }
+.jf-spinner { width: 76px; height: 76px; margin-bottom: 12px; border: 6px solid rgba(255, 255, 255, .18); border-top-color: var(--jf-accent); border-radius: 50%; animation: jf-spin .9s linear infinite; }
+.jf-loading__title { font-size: 40px; font-weight: 600; line-height: 1.2; }
+.jf-loading__sub { font-size: 24px; color: rgba(255, 255, 255, .8); }
+@keyframes jf-spin { to { transform: rotate(360deg); } }
+html.fc-playing #fc-loading { display: none; }

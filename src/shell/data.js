@@ -1,5 +1,6 @@
 // Data for the Jellyfin-style shell, all from the site itself (PRD Appendix A.2). Same-origin only: the site's CSP
 // blocks everything else from injected code.
+import { swr } from './cache.js';
 
 export const IMG = 'https://img.xcdn.to/t/p';
 export const unescape = (s) => String(s || '').replace(/\\(['"])/g, '$1'); // the site escapes quotes in alt text
@@ -140,15 +141,26 @@ async function get(url) {
   return r.text();
 }
 
-export async function library(kind, page = 1, sort = 'latest') {
-  const doc = toDoc(await get(`/show/${kind === 'movies' ? 'movies' : 'tvshows'}?page=${page}&sort=${sort}&ajax=1`));
-  return { cards: parseCards(doc), lastPage: lastPage(doc) };
+// Library pages and searches are served from the cache at once and revalidated (onFresh gets changed results).
+export function library(kind, page = 1, sort = 'latest', onFresh) {
+  return swr(`lib:${kind}:${sort}:${page}`, async () => {
+    const doc = toDoc(await get(`/show/${kind === 'movies' ? 'movies' : 'tvshows'}?page=${page}&sort=${sort}&ajax=1`));
+    return { cards: parseCards(doc), lastPage: lastPage(doc) };
+  }, onFresh);
 }
 
-export async function search(query, page = 1) {
-  const doc = toDoc(await get(`/search/${encodeURIComponent(query)}?ajax=1&tab=movies,tvshows${page > 1 ? `&page=${page}` : ''}`));
-  return { cards: parseCards(doc), lastPage: lastPage(doc) };
+export function search(query, page = 1, onFresh) {
+  return swr(`search:${query.toLowerCase()}:${page}`, async () => {
+    const doc = toDoc(await get(`/search/${encodeURIComponent(query)}?ajax=1&tab=movies,tvshows${page > 1 ? `&page=${page}` : ''}`));
+    return { cards: parseCards(doc), lastPage: lastPage(doc) };
+  }, onFresh);
 }
+
+// First page of a library as the site rendered it (the page we're on).
+export const parseLibraryPage = (root, kind) => ({
+  cards: parseCards(root.querySelector('#content') || root).filter((c) => c.type === (kind === 'movies' ? 'movie' : 'tv')),
+  lastPage: lastPage(root),
+});
 
 export async function details(type, pid) {
   const html = await get(`/watch/${type === 'movie' ? 'movie' : 'tv'}/${pid}`);

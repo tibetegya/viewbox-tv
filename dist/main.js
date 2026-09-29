@@ -348,7 +348,9 @@ html.fc-playing .player:not(.hide) #player { width: 100vw !important; height: 10
 .jf-details__info { border-collapse: collapse; margin-bottom: 20px; }
 .jf-details__info th { text-align: left; font-weight: 400; padding: 5px 80px 5px 0; }
 .jf-details__info td { font-weight: 600; padding: 5px 0; }
-.jf-details .jf-section__title, .jf-details .jf-row { padding-left: 0; }
+.jf-details .jf-section__title { padding-left: 0; }
+/* Rows scroll, so they clip: keep room on the left for the focused card's zoom + ring, without moving the cards. */
+.jf-details .jf-row { padding-left: 24px; margin-left: -24px; scroll-padding-left: 24px; }
 .jf-episodes { display: grid; gap: 10px; }
 .jf-episode { scroll-margin: 140px 0 60px; display: flex; gap: 30px; align-items: center; text-align: left; padding: 0; border-radius: 4px; }
 .jf-episode:focus { background: rgba(255, 255, 255, .08); }
@@ -426,7 +428,81 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
 .jf-toggle::before { content: ''; width: 52px; height: 28px; border-radius: 14px; background: #444; box-shadow: inset 0 0 0 2px #555; transition: background .15s; }
 .jf-toggle--on::before { background: var(--jf-accent); }
 .jf-toggle:focus { background: rgba(255, 255, 255, .1) !important; box-shadow: 0 0 0 3px var(--jf-focus); }
+
+/* ---- Skeletons (first visit, while the site's page loads) ---- */
+.jf-skel { background: #242424; border-radius: 4px; animation: jf-pulse 1.4s ease-in-out infinite; }
+.jf-skel--text { height: 18px; margin: 12px auto 0; }
+.jf-section__title .jf-skel--text { height: 26px; margin: 8px 0 4px; }
+.jf-skel-body .jf-skel--text { margin: 0 0 22px; height: 24px; }
+.jf-skel-body .jf-skel--text:first-child { height: 40px; }
+.jf-row--skel { overflow: hidden; }
+.jf-skel-card .jf-card__img { background: #242424; }
+@keyframes jf-pulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+
+/* ---- Loading screen before playback ---- */
+#fc-loading { position: fixed; inset: 0; z-index: 9500; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: #000 center / cover no-repeat; color: #fff; font: 400 24px/1.4 var(--jf-font); text-align: center; }
+#fc-loading::before { content: ''; position: absolute; inset: 0; background: rgba(0, 0, 0, .75); }
+#fc-loading > * { position: relative; }
+.jf-spinner { width: 76px; height: 76px; margin-bottom: 12px; border: 6px solid rgba(255, 255, 255, .18); border-top-color: var(--jf-accent); border-radius: 50%; animation: jf-spin .9s linear infinite; }
+.jf-loading__title { font-size: 40px; font-weight: 600; line-height: 1.2; }
+.jf-loading__sub { font-size: 24px; color: rgba(255, 255, 255, .8); }
+@keyframes jf-spin { to { transform: rotate(360deg); } }
+html.fc-playing #fc-loading { display: none; }
 `;
+
+  // src/shell/cache.js
+  var KEY2 = "fc-tv-swr";
+  var MAX_ITEMS = 40;
+  var MAX_CHARS = 1e6;
+  function createCache(storage) {
+    const st = () => storage || globalThis.localStorage;
+    const read = () => {
+      try {
+        return JSON.parse(st().getItem(KEY2)) || {};
+      } catch {
+        return {};
+      }
+    };
+    return {
+      get(key) {
+        const e = read()[key];
+        return e ? e.v : void 0;
+      },
+      set(key, v) {
+        const all = read();
+        all[key] = { t: Date.now(), v };
+        const byAge = () => Object.keys(all).sort((a, b) => all[a].t - all[b].t);
+        for (const k of byAge().slice(0, Math.max(0, Object.keys(all).length - MAX_ITEMS))) delete all[k];
+        let json = JSON.stringify(all);
+        while (json.length > MAX_CHARS && Object.keys(all).length > 1) {
+          delete all[byAge()[0]];
+          json = JSON.stringify(all);
+        }
+        try {
+          st().setItem(KEY2, json);
+        } catch {
+          try {
+            st().removeItem(KEY2);
+          } catch {
+          }
+        }
+      }
+    };
+  }
+  var cache = createCache();
+  var same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  function swr(key, load2, onFresh, store = cache) {
+    const stale = store.get(key);
+    const fresh = load2().then((v) => {
+      store.set(key, v);
+      if (stale !== void 0 && onFresh && !same(v, stale)) onFresh(v);
+      return v;
+    });
+    if (stale === void 0) return fresh;
+    fresh.catch(() => {
+    });
+    return Promise.resolve(stale);
+  }
 
   // src/shell/data.js
   var IMG = "https://img.xcdn.to/t/p";
@@ -561,14 +637,22 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     if (!r.ok) throw new Error(`${r.status} ${url}`);
     return r.text();
   }
-  async function library(kind, page = 1, sort = "latest") {
-    const doc = toDoc(await get(`/show/${kind === "movies" ? "movies" : "tvshows"}?page=${page}&sort=${sort}&ajax=1`));
-    return { cards: parseCards(doc), lastPage: lastPage(doc) };
+  function library(kind, page = 1, sort = "latest", onFresh) {
+    return swr(`lib:${kind}:${sort}:${page}`, async () => {
+      const doc = toDoc(await get(`/show/${kind === "movies" ? "movies" : "tvshows"}?page=${page}&sort=${sort}&ajax=1`));
+      return { cards: parseCards(doc), lastPage: lastPage(doc) };
+    }, onFresh);
   }
-  async function search(query, page = 1) {
-    const doc = toDoc(await get(`/search/${encodeURIComponent(query)}?ajax=1&tab=movies,tvshows${page > 1 ? `&page=${page}` : ""}`));
-    return { cards: parseCards(doc), lastPage: lastPage(doc) };
+  function search(query, page = 1, onFresh) {
+    return swr(`search:${query.toLowerCase()}:${page}`, async () => {
+      const doc = toDoc(await get(`/search/${encodeURIComponent(query)}?ajax=1&tab=movies,tvshows${page > 1 ? `&page=${page}` : ""}`));
+      return { cards: parseCards(doc), lastPage: lastPage(doc) };
+    }, onFresh);
   }
+  var parseLibraryPage = (root, kind) => ({
+    cards: parseCards(root.querySelector("#content") || root).filter((c) => c.type === (kind === "movies" ? "movie" : "tv")),
+    lastPage: lastPage(root)
+  });
   async function details(type, pid) {
     const html = await get(`/watch/${type === "movie" ? "movie" : "tv"}/${pid}`);
     return parseDetails(toDoc(html), html);
@@ -710,9 +794,24 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     );
     return h("header", { class: "jf-header" }, left, mid, right);
   }
-  var isSignedIn = () => !!document.querySelector('a[href="/account"]');
+  var SIGNED_KEY = "fc-tv-signed-in";
+  var isSignedIn = () => {
+    if (document.readyState === "loading") {
+      try {
+        return localStorage.getItem(SIGNED_KEY) === "1";
+      } catch {
+        return false;
+      }
+    }
+    const on = !!document.querySelector('a[href="/account"]');
+    try {
+      localStorage.setItem(SIGNED_KEY, on ? "1" : "0");
+    } catch {
+    }
+    return on;
+  };
   var toast = (text) => {
-    const t = document.body.appendChild(h("div", { class: "fc-toast", role: "status" }, text));
+    const t = (document.body || document.documentElement).appendChild(h("div", { class: "fc-toast", role: "status" }, text));
     setTimeout(() => t.remove(), 2e3);
   };
 
@@ -749,9 +848,9 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     if (/"status"\s*:\s*"expired"/.test(body)) throw new Error("Your VIP membership has expired.");
   }
   var field = (label, input) => h("label", { class: "jf-field" }, h("span", { class: "jf-field__label" }, label), input);
-  function settingsView(app) {
+  function settingsView(app2) {
     const main = h("main", { class: "jf-main jf-settings" });
-    app.append(header({ title: "Settings" }), main);
+    app2.append(header({ title: "Settings" }), main);
     const signedIn = isSignedIn();
     const email = h("input", { class: "jf-input", type: "email", autocomplete: "username", placeholder: "VIP email" });
     const password = h("input", { class: "jf-input", type: "password", autocomplete: "current-password", placeholder: "Password" });
@@ -837,7 +936,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       "section",
       { class: "jf-settings__section" },
       h("h2", { class: "jf-section__title" }, "About"),
-      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.4.3" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
+      h("p", { class: "jf-settings__about" }, `Viewbox TV ${true ? "0.4.4" : ""} \xB7 screen ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x \xB7 ${location.host}`),
       h("p", { class: "jf-settings__about" }, navigator.userAgent)
     );
     main.append(account, sync, playback, about);
@@ -878,8 +977,8 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
   function ensureMeta(items, max = 12, onEach) {
     queue2 = queue2.catch(() => {
     }).then(async () => {
-      const cache = metaCache.all();
-      const todo = items.filter((it) => !cache[it.pid] || Date.now() - (cache[it.pid].ts || 0) > TTL).slice(0, max);
+      const cache2 = metaCache.all();
+      const todo = items.filter((it) => !cache2[it.pid] || Date.now() - (cache2[it.pid].ts || 0) > TTL).slice(0, max);
       for (const it of todo) {
         try {
           const d = await details(it.type, it.pid);
@@ -915,10 +1014,9 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     var _a;
     if (!document.activeElement || document.activeElement === document.body) (_a = root.querySelector(".jf-card, button, a")) == null ? void 0 : _a.focus({ preventScroll: true });
   }, 0);
-  function homeView(app) {
-    const site = parseHome(document);
+  function homeView(app2, site) {
     const main = h("main", { class: "jf-main" });
-    app.append(header({ tabs: HOME_TABS, active: "home" }), main);
+    app2.append(header({ tabs: HOME_TABS, active: "home" }), main);
     const backdropOf = (type) => {
       var _a;
       return (_a = site.hero.find((x) => x.href.includes(`/${type}/`) && x.backdrop)) == null ? void 0 : _a.backdrop;
@@ -986,11 +1084,11 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     const uniq = [...new Map(need.map((x) => [x.pid, x])).values()].slice(0, 16);
     ensureMeta(uniq).then(drawPersonal);
   }
-  function favouritesView(app) {
+  function favouritesView(app2) {
     const main = h("main", { class: "jf-main" });
-    app.append(header({ tabs: HOME_TABS, active: "favourites" }), main);
+    app2.append(header({ tabs: HOME_TABS, active: "favourites" }), main);
     const settingsLink = (text) => h("p", { class: "jf-empty" }, text, " ", h("a", { class: "jf-button jf-button--inline", href: "/home#settings" }, "Open Settings"));
-    let loading = true;
+    let loading2 = true;
     let note = null;
     const itemsNow = () => [...favoritePids2("t").map((pid) => ({ pid, type: "tv" })), ...favoritePids2("m").map((pid) => ({ pid, type: "movie" }))];
     const draw = () => {
@@ -1008,20 +1106,20 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
         if (!isSignedIn()) empty = settingsLink("Sign in to your VIP account to see your favourites.");
         else if (!items.length && !localStorage.getItem("hqs.code")) empty = settingsLink("No favourites yet \u2014 add your list's Sync Code in Settings to load them.");
         else if (!items.length) empty = h("p", { class: "jf-empty" }, "No favourites in this list yet.");
-        else empty = h("p", { class: "jf-empty" }, loading ? "Loading favourites\u2026" : "Couldn't load your favourites. Try again later.");
+        else empty = h("p", { class: "jf-empty" }, loading2 ? "Loading favourites\u2026" : "Couldn't load your favourites. Try again later.");
       }
       const had = main.contains(document.activeElement);
       main.replaceChildren(note || "", shows.length ? section("Shows", shows, "jf-grid") : "", movies.length ? section("Movies", movies, "jf-grid") : "", empty);
       if (!had) focusFirst(main);
     };
     const load2 = () => {
-      loading = true;
+      loading2 = true;
       const scanned = load();
       ensureMeta(itemsNow().filter((i) => {
         var _a;
         return !((_a = scanned[i.pid]) == null ? void 0 : _a.title);
       }), 60, draw).then(() => {
-        loading = false;
+        loading2 = false;
         draw();
       });
     };
@@ -1038,12 +1136,12 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     } else load2();
   }
   var SORTS = [["latest", "Latest"], ["best", "Best Rated"], ["name", "Name"]];
-  function libraryView(app, kind) {
+  function libraryView(app2, kind, first) {
     const params = new URLSearchParams(location.search);
     let sort = params.get("sort") || "latest";
     let page = 1;
-    let lastPage2 = Math.max(1, ...[...document.querySelectorAll(".searchnav[data-p]")].map((a) => +a.dataset.p || 1));
-    let loading = false;
+    let lastPage2 = first ? first.lastPage : 1;
+    let loading2 = false;
     const tabs = [{ id: "tv", label: "Shows", href: "/show/tvshows" }, { id: "movies", label: "Movies", href: "/show/movies" }];
     const grid = h("div", { class: "jf-grid" });
     const count = h("span", { class: "jf-toolbar__count" });
@@ -1054,15 +1152,15 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       reload();
     } }, icon("sort"), h("span", {}, ""));
     const main = h("main", { class: "jf-main" }, h("div", { class: "jf-toolbar" }, count, sortBtn), grid);
-    app.append(header({ tabs, active: kind, title: kind === "movies" ? "Movies" : "Shows" }), main);
+    app2.append(header({ tabs, active: kind, title: kind === "movies" ? "Movies" : "Shows" }), main);
     const add = (cards) => grid.append(...cards.map(posterCard));
     const label = () => {
       count.textContent = `1-${grid.children.length} of ${lastPage2 > page ? `${lastPage2 * 24}+` : grid.children.length}`;
       sortBtn.lastChild.textContent = SORTS.find(([k]) => k === sort)[1];
     };
     async function more() {
-      if (loading || page >= lastPage2) return;
-      loading = true;
+      if (loading2 || page >= lastPage2) return;
+      loading2 = true;
       try {
         const r = await library(kind, page + 1, sort);
         page += 1;
@@ -1070,12 +1168,12 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
         add(r.cards);
         label();
       } finally {
-        loading = false;
+        loading2 = false;
       }
     }
     async function reload() {
       var _a;
-      loading = true;
+      loading2 = true;
       try {
         const r = await library(kind, 1, sort);
         page = 1;
@@ -1085,11 +1183,11 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
         label();
         (_a = grid.querySelector(".jf-card")) == null ? void 0 : _a.focus();
       } finally {
-        loading = false;
+        loading2 = false;
       }
     }
-    if (sort === "latest" && !params.get("page")) {
-      add(parseCards(document.querySelector("#content") || document).filter((c) => c.type === (kind === "movies" ? "movie" : "tv")));
+    if (first) {
+      add(first.cards);
       label();
       focusFirst(grid);
     } else reload();
@@ -1099,7 +1197,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     });
   }
   var LETTERS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-  function searchView(app) {
+  function searchView(app2) {
     const initial = decodeURIComponent(location.pathname.replace(/^\/search\/?/, "")).replace(/^\*$/, "");
     const input = h("input", { class: "jf-search__input", type: "text", placeholder: "Search", value: initial, "aria-label": "Search", autocomplete: "off", spellcheck: "false" });
     const results = h("div", { class: "jf-search__results" });
@@ -1118,7 +1216,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       h("div", { class: "jf-keys__row" }, "0123456789".split("").map((d) => h("button", { class: "jf-key", onclick: () => type(d) }, d)))
     );
     const main = h("main", { class: "jf-main jf-search" }, h("div", { class: "jf-search__bar" }, icon("search", "jf-search__icon"), input), keys, results);
-    app.append(header({ title: "Search" }), main);
+    app2.append(header({ title: "Search" }), main);
     function type(ch) {
       input.value += ch.toLowerCase();
       changed();
@@ -1135,16 +1233,21 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       const my = ++token;
       if (!q) return suggestions();
       results.replaceChildren(h("p", { class: "jf-empty" }, "Searching\u2026"));
-      try {
-        const r = await search(q);
+      const show = (r) => {
+        var _a;
         if (my !== token) return;
         const shows = r.cards.filter((c) => c.type === "tv").map(posterCard);
         const movies = r.cards.filter((c) => c.type === "movie").map(posterCard);
+        const had = results.contains(document.activeElement);
         results.replaceChildren(
           shows.length ? section("Shows", shows) : "",
           movies.length ? section("Movies", movies) : "",
           !shows.length && !movies.length ? h("p", { class: "jf-empty" }, "No results.") : ""
         );
+        if (had) (_a = results.querySelector(".jf-card")) == null ? void 0 : _a.focus({ preventScroll: true });
+      };
+      try {
+        show(await search(q, 1, show));
       } catch (e) {
         if (my === token) results.replaceChildren(h("p", { class: "jf-empty" }, "Search failed. Try again."));
       }
@@ -1164,8 +1267,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
   }
 
   // src/shell/details.js
-  function detailsView(app, type, pid) {
-    const d = parseDetails(document, document.head.innerHTML);
+  function detailsView(app2, type, pid, d) {
     metaCache.put(pid, {
       type,
       title: d.title,
@@ -1189,7 +1291,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       return allEps[0];
     }
     function playEpisode(s, e) {
-      if (!document.querySelector(`tr.eplist[data-pes="${s}"][data-pep="${e}"]`)) return toast("Episode not available");
+      if (document.readyState !== "loading" && !document.querySelector(`tr.eplist[data-pes="${s}"][data-pep="${e}"]`)) return toast("Episode not available");
       location.assign(`/watch/tv/${pid}/${d.slug || "x"}/season/${s}/episode/${e}`);
     }
     function playMovie() {
@@ -1199,7 +1301,7 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     const favEl = () => document.querySelector(`.favorite[data-pid="${pid}"]`);
     const isFav = () => !!favEl() && !favEl().classList.contains("fa-heart-o");
     const main = h("main", { class: "jf-main" });
-    app.append(header({ title: d.title }), main);
+    app2.append(header({ title: d.title }), main);
     function overview() {
       const favBtn = iconButton("heart", "Add to favourites", () => {
         var _a;
@@ -1293,7 +1395,8 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       setTimeout(() => play.focus({ preventScroll: true }), 0);
     }
     const render = () => {
-      app.scrollTop = 0;
+      if (!main.isConnected) return window.removeEventListener("hashchange", render);
+      app2.scrollTop = 0;
       const m = /^#season-(\d+)$/.exec(location.hash);
       if (m) season(+m[1]);
       else overview();
@@ -1492,35 +1595,147 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
 
   // src/shell/shell.js
   function route(path) {
-    if (path === "/" || path === "/home") return (app) => location.hash === "#settings" ? settingsView(app) : homeView(app);
-    if (/^\/mylists\//.test(path)) return (app) => favouritesView(app);
+    if (path === "/" || path === "/home") {
+      if (location.hash === "#settings") return { render: (app2) => settingsView(app2), skeleton: "plain" };
+      return { key: "home", fresh: () => parseHome(document), render: homeView, skeleton: "home" };
+    }
+    if (/^\/mylists\//.test(path)) return { render: (app2) => favouritesView(app2), skeleton: "grid" };
     const lib = /^\/show\/(tvshows|movies)/.exec(path);
-    if (lib) return (app) => libraryView(app, lib[1] === "movies" ? "movies" : "tv");
+    if (lib) {
+      const kind = lib[1] === "movies" ? "movies" : "tv";
+      const params = new URLSearchParams(location.search);
+      if ((params.get("sort") || "latest") !== "latest" || params.get("page")) return { render: (app2) => libraryView(app2, kind, null), skeleton: "grid" };
+      return { key: `page:${kind}`, fresh: () => parseLibraryPage(document, kind), render: (app2, data) => libraryView(app2, kind, data), skeleton: "grid" };
+    }
     const det = /^\/watch\/(tv|movie)\/(\d+)/.exec(path);
-    if (det) return (app) => detailsView(app, det[1], det[2]);
-    if (/^\/search/.test(path)) return (app) => searchView(app);
+    if (det) return { key: `details:${det[2]}`, fresh: () => parseDetails(document, document.head.innerHTML), render: (app2, d) => detailsView(app2, det[1], det[2], d), skeleton: "details" };
+    if (/^\/search/.test(path)) return { render: (app2) => searchView(app2), skeleton: "plain" };
     return null;
   }
   var isShellPath = (path) => !!route(path);
-  function startShell() {
-    const view = route(location.pathname);
-    if (!view) return null;
+  function skeleton(kind) {
+    const bar = (width) => h("div", { class: "jf-skel jf-skel--text", style: { width } });
+    const skelCard = (shape) => h("div", { class: `jf-card jf-card--${shape} jf-skel-card` }, h("div", { class: "jf-card__img jf-skel" }), bar("60%"));
+    const row = (n, shape) => h(
+      "section",
+      { class: "jf-section" },
+      h("div", { class: "jf-section__title" }, bar("240px")),
+      h("div", { class: "jf-row jf-row--skel" }, Array.from({ length: n }, () => skelCard(shape)))
+    );
+    if (kind === "home") return [header({ tabs: HOME_TABS, active: "home" }), h("main", { class: "jf-main" }, row(3, "landscape"), row(4, "landscape"), row(8, "portrait"), row(8, "portrait"))];
+    if (kind === "grid") return [header({ title: " " }), h("main", { class: "jf-main" }, h("div", { class: "jf-grid" }, Array.from({ length: 14 }, () => skelCard("portrait"))))];
+    if (kind === "details") {
+      return [header({ title: " " }), h("main", { class: "jf-main" }, h(
+        "div",
+        { class: "jf-details" },
+        h("div", { class: "jf-details__poster jf-skel" }),
+        h("div", { class: "jf-details__body jf-skel-body" }, bar("40%"), bar("25%"), bar("180px"), bar("90%"), bar("85%"), bar("60%"))
+      ))];
+    }
+    return [header({ title: " " })];
+  }
+  var playbackExpected = () => /^\/watch\/tv\/\d+\/[^/]+\/season\/\d+\/episode\/\d+/.test(location.pathname) || /^\/watch\/movie\/\d+/.test(location.pathname) && location.hash === "#play";
+  var loading = null;
+  function showLoading() {
+    if (loading) return;
+    const [, type, pid, s, e] = /^\/watch\/(tv|movie)\/(\d+)(?:\/[^/]+\/season\/(\d+)\/episode\/(\d+))?/.exec(location.pathname) || [];
+    const m = metaCache.all()[pid] || {};
+    const ep = type === "tv" && s ? findEp(m, +s, +e) : null;
+    const sub = type === "tv" && s ? epLabel(+s, +e, ep && ep.title) : m.year;
+    loading = h(
+      "div",
+      { id: "fc-loading", role: "status", "aria-label": "Loading", style: m.backdrop ? { backgroundImage: `url("${img(m.backdrop, "w1280")}")` } : null },
+      h("div", { class: "jf-spinner" }),
+      m.title && h("div", { class: "jf-loading__title" }, m.title),
+      sub && h("div", { class: "jf-loading__sub" }, sub)
+    );
+    document.documentElement.appendChild(loading);
+    loading.timer = setTimeout(() => {
+      hideLoading();
+      toast("Couldn\u2019t start playback");
+    }, 45e3);
+  }
+  function hideLoading() {
+    if (!loading) return;
+    clearTimeout(loading.timer);
+    loading.remove();
+    loading = null;
+  }
+  var isLoadingPlayback = () => !!loading;
+  var app = null;
+  var drawn = null;
+  function mount(parent) {
     document.documentElement.classList.add("fc-shell");
-    document.head.appendChild(document.createElement("style")).textContent = jellyfin_default;
-    const app = document.body.appendChild(h("div", { id: "fc-app" }));
-    view(app);
+    (document.head || document.documentElement).appendChild(document.createElement("style")).textContent = jellyfin_default;
+    app = parent.appendChild(h("div", { id: "fc-app" }));
+  }
+  function bootShell() {
+    const r = route(location.pathname);
+    if (!r || app) return;
+    mount(document.documentElement);
+    const stale = r.key ? cache.get(r.key) : void 0;
+    if (stale !== void 0) {
+      try {
+        r.render(app, stale);
+        drawn = { data: stale, signedIn: localStorage.getItem("fc-tv-signed-in") };
+      } catch (e) {
+        app.replaceChildren(...skeleton(r.skeleton));
+      }
+    } else app.append(...skeleton(r.skeleton));
+    if (playbackExpected()) showLoading();
+  }
+  function unmountShell() {
+    hideLoading();
+    app == null ? void 0 : app.remove();
+    app = null;
+    document.documentElement.classList.remove("fc-shell");
+  }
+  var focusPath = () => {
+    const el = document.activeElement;
+    const sec = el && app.contains(el) && el.closest(".jf-section");
+    return sec ? [[...app.querySelectorAll(".jf-section")].indexOf(sec), [...sec.querySelectorAll(".jf-card")].indexOf(el.closest(".jf-card"))] : null;
+  };
+  var restoreFocus = (p) => {
+    const sec = p && app.querySelectorAll(".jf-section")[p[0]];
+    const target = sec && (sec.querySelectorAll(".jf-card")[p[1]] || sec.querySelector(".jf-card"));
+    if (target) {
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  };
+  function startShell() {
+    const r = route(location.pathname);
+    if (!r) return null;
+    if (!app) mount(document.body);
+    const fresh = r.key ? r.fresh() : void 0;
+    if (r.key) cache.set(r.key, fresh);
+    const signedIn = document.querySelector('a[href="/account"]') ? "1" : "0";
+    if (!(drawn && same(drawn.data, fresh) && drawn.signedIn === signedIn)) {
+      const where = focusPath();
+      const top = app.scrollTop;
+      app.replaceChildren();
+      r.render(app, fresh);
+      if (where) {
+        app.scrollTop = top;
+        restoreFocus(where);
+      }
+    }
+    if (playbackExpected()) showLoading();
     if (location.pathname === "/" || location.pathname === "/home") {
       window.addEventListener("hashchange", () => {
+        const r2 = route(location.pathname);
         app.replaceChildren();
         app.scrollTop = 0;
-        view(app);
+        r2.render(app, r2.key ? r2.fresh() : void 0);
       });
     }
     const osd = createOsd();
     const setPlaying = (on) => {
       document.documentElement.classList.toggle("fc-playing", on);
-      if (on) osd.attach();
-      else osd.detach();
+      if (on) {
+        hideLoading();
+        osd.attach();
+      } else osd.detach();
     };
     const onPlay = (e) => {
       const v = e.target;
@@ -1535,7 +1750,10 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     if (player) new MutationObserver(() => {
       if (player.classList.contains("hide")) setPlaying(false);
     }).observe(player, { attributes: true, attributeFilter: ["class"] });
-    return { osd, stop: () => setPlaying(false), playing: () => document.documentElement.classList.contains("fc-playing") };
+    return { osd, stop: () => {
+      hideLoading();
+      setPlaying(false);
+    }, playing: () => document.documentElement.classList.contains("fc-playing") };
   }
 
   // src/shell/autostart.js
@@ -1589,6 +1807,11 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
       s.textContent = "html.fc-boot,html.fc-boot body{background:#101010!important}html.fc-boot body{visibility:hidden!important}";
       (document.head || document.documentElement).appendChild(s);
       setTimeout(unboot, 8e3);
+      try {
+        bootShell();
+      } catch (e) {
+        console.warn("[viewbox-tv] early draw failed", e);
+      }
     };
     if (booting) {
       if (document.documentElement) boot();
@@ -1635,7 +1858,10 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
           throw e;
         }
       }
-      if (!looksLikeSite()) return unboot();
+      if (!looksLikeSite()) {
+        unmountShell();
+        return unboot();
+      }
       siteActive = true;
       document.documentElement.classList.add("fc-tv");
       document.head.appendChild(document.createElement("style")).textContent = tv_default;
@@ -1674,8 +1900,14 @@ html.fc-shell #player > div::part(title) { font-weight: 600; }
     }, true);
     window.addEventListener("keydown", (e) => {
       var _a, _b, _c;
-      if (!siteActive) return;
+      if (!siteActive && !document.getElementById("fc-app")) return;
       const code = e.keyCode;
+      if (isLoadingPlayback() && (KEYS[code] || code === 13)) {
+        e.preventDefault();
+        e.stopPropagation();
+        handled.add(code);
+        return;
+      }
       if (playerOpen() && !inOverlay() && (KEYS[code] || code === 13)) {
         if (!shell) return;
         if (shell.osd.handleKey(e)) {

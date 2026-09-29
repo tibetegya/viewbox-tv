@@ -1,9 +1,9 @@
 // Series / movie details and season view (Jellyfin TV layout). Built from the page we're on; playback uses the site's own player.
 import { h, icon, iconButton, card, section, header, epLabel, toast } from './ui.js';
-import { parseDetails, watchEntries, img, metaCache } from './data.js';
+import { watchEntries, img, metaCache } from './data.js';
 
-export function detailsView(app, type, pid) {
-  const d = parseDetails(document, document.head.innerHTML);
+// d: parseDetails() of the site's page — fresh, or the cached copy while the page is still loading (shell.js).
+export function detailsView(app, type, pid, d) {
   metaCache.put(pid, {
     type, title: d.title, year: d.year, slug: d.slug, poster: d.poster, backdrop: d.backdrop,
     eps: d.seasons.flatMap((s) => s.episodes.map((e) => [e.season, e.episode, e.title, e.thumb])),
@@ -23,7 +23,7 @@ export function detailsView(app, type, pid) {
   // Start playback by loading the episode's own URL: the site autoplays it on load. Starting it in-page (clicking the
   // hidden episode row) works on desktop Chrome but not on the TV (reported on the UA55TU8000), while URL loads did.
   function playEpisode(s, e) {
-    if (!document.querySelector(`tr.eplist[data-pes="${s}"][data-pep="${e}"]`)) return toast('Episode not available');
+    if (document.readyState !== 'loading' && !document.querySelector(`tr.eplist[data-pes="${s}"][data-pep="${e}"]`)) return toast('Episode not available');
     location.assign(`/watch/tv/${pid}/${d.slug || 'x'}/season/${s}/episode/${e}`);
   }
   // Movies: reload with #play, which lets the site's autoplay through (autostart.js holds it otherwise).
@@ -97,7 +97,12 @@ export function detailsView(app, type, pid) {
     setTimeout(() => play.focus({ preventScroll: true }), 0);
   }
 
-  const render = () => { app.scrollTop = 0; const m = /^#season-(\d+)$/.exec(location.hash); if (m) season(+m[1]); else overview(); };
+  const render = () => {
+    if (!main.isConnected) return window.removeEventListener('hashchange', render); // redrawn with fresh data since
+    app.scrollTop = 0;
+    const m = /^#season-(\d+)$/.exec(location.hash);
+    if (m) season(+m[1]); else overview();
+  };
   window.addEventListener('hashchange', render);
   render();
 }

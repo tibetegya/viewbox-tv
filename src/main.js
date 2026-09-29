@@ -5,7 +5,7 @@ import css from './tv.css';
 import { move, activeEl } from './nav.js';
 import { scan, markSeen } from './episodes.js';
 import { isLauncher, runLauncher } from './launcher.js';
-import { startShell, isShellPath } from './shell/shell.js';
+import { startShell, isShellPath, bootShell, unmountShell, isLoadingPlayback } from './shell/shell.js';
 import { holdMovieAutostart } from './shell/autostart.js';
 
 /* global PLAYER_SRC, tizen, jwplayer */
@@ -26,6 +26,8 @@ import { holdMovieAutostart } from './shell/autostart.js';
     s.textContent = 'html.fc-boot,html.fc-boot body{background:#101010!important}html.fc-boot body{visibility:hidden!important}';
     (document.head || document.documentElement).appendChild(s);
     setTimeout(unboot, 8000);
+    // Draw the screen right away: from the last data seen, or a skeleton (shell.js); refreshed once the page is ready.
+    try { bootShell(); } catch (e) { console.warn('[viewbox-tv] early draw failed', e); }
   };
   // At document start <html> may not exist yet: apply the moment it's inserted, before anything paints.
   if (booting) {
@@ -68,7 +70,7 @@ import { holdMovieAutostart } from './shell/autostart.js';
         throw e;
       }
     }
-    if (!looksLikeSite()) return unboot();
+    if (!looksLikeSite()) { unmountShell(); return unboot(); }
     siteActive = true;
     document.documentElement.classList.add('fc-tv');
     document.head.appendChild(document.createElement('style')).textContent = css;
@@ -105,8 +107,10 @@ import { holdMovieAutostart } from './shell/autostart.js';
   }, true);
 
   window.addEventListener('keydown', (e) => {
-    if (!siteActive) return;
+    if (!siteActive && !document.getElementById('fc-app')) return; // our screen may be up before the page is ready
     const code = e.keyCode;
+    // Loading screen before playback: only Back (leave) does anything.
+    if (isLoadingPlayback() && (KEYS[code] || code === 13)) { e.preventDefault(); e.stopPropagation(); handled.add(code); return; }
     // While playing: the Jellyfin-style OSD owns the keys (first press shows it); without the shell, the site's keys.
     if (playerOpen() && !inOverlay() && (KEYS[code] || code === 13)) {
       if (!shell) return; // site: ←/→ seek, ↑/↓ volume

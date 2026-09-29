@@ -103,10 +103,17 @@ export function header({ tabs, active, title } = {}) {
   return h('header', { class: 'jf-header' }, left, mid, right);
 }
 
-// The site shows a "My Account" link only when a VIP session is active (PRD Appendix A).
-export const isSignedIn = () => !!document.querySelector('a[href="/account"]');
+// The site shows a "My Account" link only when a VIP session is active (PRD Appendix A). While the page is still
+// loading (screens drawn from the cache at document start) the last known state is used.
+const SIGNED_KEY = 'fc-tv-signed-in';
+export const isSignedIn = () => {
+  if (document.readyState === 'loading') { try { return localStorage.getItem(SIGNED_KEY) === '1'; } catch { return false; } }
+  const on = !!document.querySelector('a[href="/account"]');
+  try { localStorage.setItem(SIGNED_KEY, on ? '1' : '0'); } catch {}
+  return on;
+};
 
 export const toast = (text) => {
-  const t = document.body.appendChild(h('div', { class: 'fc-toast', role: 'status' }, text));
+  const t = (document.body || document.documentElement).appendChild(h('div', { class: 'fc-toast', role: 'status' }, text));
   setTimeout(() => t.remove(), 2000);
 };

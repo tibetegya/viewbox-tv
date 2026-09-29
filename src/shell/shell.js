@@ -1,41 +1,152 @@
 // Jellyfin-style shell: hides the site's own UI (it stays in the DOM for data and the player) and draws our screens.
+// Screens draw as early as possible: at document start from the last data seen (cache.js), or as a skeleton the first
+// time, then refresh in place when the site's page has loaded (stale-while-revalidate).
 import css from './jellyfin.css';
-import { h } from './ui.js';
-import { homeView, favouritesView, libraryView, searchView } from './views.js';
+import { h, header, epLabel, toast } from './ui.js';
+import { homeView, favouritesView, libraryView, searchView, HOME_TABS } from './views.js';
 import { detailsView } from './details.js';
 import { settingsView } from './settings.js';
 import { createOsd } from './osd.js';
+import { parseHome, parseDetails, parseLibraryPage, metaCache, img } from './data.js';
+import { findEp } from './meta.js';
+import { cache, same } from './cache.js';
 
+// Each screen: render(app, data), and for screens built from the site's page, the cache key + fresh() parser.
 function route(path) {
-  if (path === '/' || path === '/home') return (app) => (location.hash === '#settings' ? settingsView(app) : homeView(app));
-  if (/^\/mylists\//.test(path)) return (app) => favouritesView(app);
+  if (path === '/' || path === '/home') {
+    if (location.hash === '#settings') return { render: (app) => settingsView(app), skeleton: 'plain' };
+    return { key: 'home', fresh: () => parseHome(document), render: homeView, skeleton: 'home' };
+  }
+  if (/^\/mylists\//.test(path)) return { render: (app) => favouritesView(app), skeleton: 'grid' };
   const lib = /^\/show\/(tvshows|movies)/.exec(path);
-  if (lib) return (app) => libraryView(app, lib[1] === 'movies' ? 'movies' : 'tv');
+  if (lib) {
+    const kind = lib[1] === 'movies' ? 'movies' : 'tv';
+    const params = new URLSearchParams(location.search);
+    if ((params.get('sort') || 'latest') !== 'latest' || params.get('page')) return { render: (app) => libraryView(app, kind, null), skeleton: 'grid' };
+    return { key: `page:${kind}`, fresh: () => parseLibraryPage(document, kind), render: (app, data) => libraryView(app, kind, data), skeleton: 'grid' };
+  }
   const det = /^\/watch\/(tv|movie)\/(\d+)/.exec(path);
-  if (det) return (app) => detailsView(app, det[1], det[2]);
-  if (/^\/search/.test(path)) return (app) => searchView(app);
+  if (det) return { key: `details:${det[2]}`, fresh: () => parseDetails(document, document.head.innerHTML), render: (app, d) => detailsView(app, det[1], det[2], d), skeleton: 'details' };
+  if (/^\/search/.test(path)) return { render: (app) => searchView(app), skeleton: 'plain' };
   return null; // login, account, … keep the site's own page
 }
 
 export const isShellPath = (path) => !!route(path);
 
-export function startShell() {
-  const view = route(location.pathname);
-  if (!view) return null;
+// ---- skeletons (first visit): the shape of the screen while the site's page loads -------------------------------
+function skeleton(kind) {
+  const bar = (width) => h('div', { class: 'jf-skel jf-skel--text', style: { width } });
+  const skelCard = (shape) => h('div', { class: `jf-card jf-card--${shape} jf-skel-card` }, h('div', { class: 'jf-card__img jf-skel' }), bar('60%'));
+  const row = (n, shape) => h('section', { class: 'jf-section' }, h('div', { class: 'jf-section__title' }, bar('240px')),
+    h('div', { class: 'jf-row jf-row--skel' }, Array.from({ length: n }, () => skelCard(shape))));
+  if (kind === 'home') return [header({ tabs: HOME_TABS, active: 'home' }), h('main', { class: 'jf-main' }, row(3, 'landscape'), row(4, 'landscape'), row(8, 'portrait'), row(8, 'portrait'))];
+  if (kind === 'grid') return [header({ title: ' ' }), h('main', { class: 'jf-main' }, h('div', { class: 'jf-grid' }, Array.from({ length: 14 }, () => skelCard('portrait'))))];
+  if (kind === 'details') {
+    return [header({ title: ' ' }), h('main', { class: 'jf-main' }, h('div', { class: 'jf-details' },
+      h('div', { class: 'jf-details__poster jf-skel' }),
+      h('div', { class: 'jf-details__body jf-skel-body' }, bar('40%'), bar('25%'), bar('180px'), bar('90%'), bar('85%'), bar('60%'))))];
+  }
+  return [header({ title: ' ' })];
+}
+
+// ---- playback loading screen: an episode URL (or a movie with #play) plays on load; show this until it does -----
+const playbackExpected = () => /^\/watch\/tv\/\d+\/[^/]+\/season\/\d+\/episode\/\d+/.test(location.pathname)
+  || (/^\/watch\/movie\/\d+/.test(location.pathname) && location.hash === '#play');
+let loading = null;
+function showLoading() {
+  if (loading) return;
+  const [, type, pid, s, e] =/^\/watch\/(tv|movie)\/(\d+)(?:\/[^/]+\/season\/(\d+)\/episode\/(\d+))?/.exec(location.pathname) || [];
+  const m = metaCache.all()[pid] || {};
+  const ep = type === 'tv' && s ? findEp(m, +s, +e) : null;
+  const sub = type === 'tv' && s ? epLabel(+s, +e, ep && ep.title) : m.year;
+  loading = h('div', { id: 'fc-loading', role: 'status', 'aria-label': 'Loading', style: m.backdrop ? { backgroundImage: `url("${img(m.backdrop, 'w1280')}")` } : null },
+    h('div', { class: 'jf-spinner' }),
+    m.title && h('div', { class: 'jf-loading__title' }, m.title),
+    sub && h('div', { class: 'jf-loading__sub' }, sub));
+  document.documentElement.appendChild(loading);
+  loading.timer = setTimeout(() => { hideLoading(); toast('Couldn’t start playback'); }, 45000);
+}
+function hideLoading() {
+  if (!loading) return;
+  clearTimeout(loading.timer);
+  loading.remove();
+  loading = null;
+}
+export const isLoadingPlayback = () => !!loading;
+
+// ---- mounting -----------------------------------------------------------------------------------------------------
+let app = null;
+let drawn = null; // { data, signedIn } the screen was drawn with at document start (null: skeleton)
+
+function mount(parent) {
   document.documentElement.classList.add('fc-shell');
-  document.head.appendChild(document.createElement('style')).textContent = css;
-  const app = document.body.appendChild(h('div', { id: 'fc-app' }));
-  view(app);
+  (document.head || document.documentElement).appendChild(document.createElement('style')).textContent = css;
+  app = parent.appendChild(h('div', { id: 'fc-app' }));
+}
+
+// Document start (from main.js, before <body> exists): draw the cached screen, or its skeleton.
+export function bootShell() {
+  const r = route(location.pathname);
+  if (!r || app) return;
+  mount(document.documentElement);
+  const stale = r.key ? cache.get(r.key) : undefined;
+  if (stale !== undefined) {
+    try { r.render(app, stale); drawn = { data: stale, signedIn: localStorage.getItem('fc-tv-signed-in') }; } catch (e) { app.replaceChildren(...skeleton(r.skeleton)); }
+  } else app.append(...skeleton(r.skeleton));
+  if (playbackExpected()) showLoading();
+}
+
+// The page turned out not to be the site (e.g. a Cloudflare challenge): take everything down again.
+export function unmountShell() {
+  hideLoading();
+  app?.remove();
+  app = null;
+  document.documentElement.classList.remove('fc-shell');
+}
+
+// Where focus is (section + card index), to put it back after a redraw.
+const focusPath = () => {
+  const el = document.activeElement;
+  const sec = el && app.contains(el) && el.closest('.jf-section');
+  return sec ? [[...app.querySelectorAll('.jf-section')].indexOf(sec), [...sec.querySelectorAll('.jf-card')].indexOf(el.closest('.jf-card'))] : null;
+};
+const restoreFocus = (p) => {
+  const sec = p && app.querySelectorAll('.jf-section')[p[0]];
+  const target = sec && (sec.querySelectorAll('.jf-card')[p[1]] || sec.querySelector('.jf-card'));
+  if (target) { target.focus({ preventScroll: true }); target.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+};
+
+// Page loaded: revalidate — redraw only if the site's data (or the sign-in state) differs from what's on screen.
+export function startShell() {
+  const r = route(location.pathname);
+  if (!r) return null;
+  if (!app) mount(document.body);
+  const fresh = r.key ? r.fresh() : undefined;
+  if (r.key) cache.set(r.key, fresh);
+  const signedIn = document.querySelector('a[href="/account"]') ? '1' : '0';
+  if (!(drawn && same(drawn.data, fresh) && drawn.signedIn === signedIn)) {
+    const where = focusPath();
+    const top = app.scrollTop;
+    app.replaceChildren();
+    r.render(app, fresh);
+    if (where) { app.scrollTop = top; restoreFocus(where); }
+  }
+  if (playbackExpected()) showLoading();
   // Home ⇄ Settings is a hash change on the same page: redraw instead of reloading.
   if (location.pathname === '/' || location.pathname === '/home') {
-    window.addEventListener('hashchange', () => { app.replaceChildren(); app.scrollTop = 0; view(app); });
+    window.addEventListener('hashchange', () => {
+      const r2 = route(location.pathname);
+      app.replaceChildren();
+      app.scrollTop = 0;
+      r2.render(app, r2.key ? r2.fresh() : undefined);
+    });
   }
   const osd = createOsd();
 
   // The site's player becomes visible (full screen, above the shell) only while an episode/movie is on.
   const setPlaying = (on) => {
     document.documentElement.classList.toggle('fc-playing', on);
-    if (on) osd.attach(); else osd.detach();
+    if (on) { hideLoading(); osd.attach(); } else osd.detach();
   };
   // Shown on 'playing' or the first 'timeupdate' while playing: on the TV an HLS stream may not know its duration yet
   // when 'playing' fires, so an unknown duration counts as long (the > 2 min check only filters short ads).
@@ -50,5 +161,5 @@ export function startShell() {
   document.addEventListener('timeupdate', onPlay, true);
   const player = document.querySelector('.player');
   if (player) new MutationObserver(() => { if (player.classList.contains('hide')) setPlaying(false); }).observe(player, { attributes: true, attributeFilter: ['class'] });
-  return { osd, stop: () => setPlaying(false), playing: () => document.documentElement.classList.contains('fc-playing') };
+  return { osd, stop: () => { hideLoading(); setPlaying(false); }, playing: () => document.documentElement.classList.contains('fc-playing') };
 }
